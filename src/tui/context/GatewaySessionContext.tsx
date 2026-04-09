@@ -129,6 +129,7 @@ export function GatewaySessionProvider({
 
   const disconnect = useCallback(async () => {
     await clientRef.current?.disconnect();
+    clientRef.current = null;
     setConnectionState('disconnected');
   }, []);
 
@@ -140,14 +141,20 @@ export function GatewaySessionProvider({
       const client = ensureClient();
       await connect();
       const clientRequestId = randomId('client');
-      setMessages(current => [...current, createLocalUserMessage({ clientRequestId, text })]);
-      const response = await client.sendChat({
-        sessionKey,
-        text,
-        thinkingMode,
-        clientRequestId,
-      });
-      setActiveRun({ runId: response.runId, startedAt: Date.now(), state: 'streaming' });
+      const userMsg = createLocalUserMessage({ clientRequestId, text });
+      setMessages(current => [...current, userMsg]);
+      try {
+        const response = await client.sendChat({
+          sessionKey,
+          text,
+          thinkingMode,
+          clientRequestId,
+        });
+        setActiveRun({ runId: response.runId, startedAt: Date.now(), state: 'streaming' });
+      } catch {
+        // Remove optimistic user message on send failure
+        setMessages(current => current.filter(m => m.id !== userMsg.id));
+      }
     },
     [config, connect, ensureClient, sessionKey, thinkingMode]
   );

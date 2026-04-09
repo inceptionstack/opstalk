@@ -19,7 +19,8 @@ function parseInline(text: string): RenderSpan[] {
       spans.push({ text: text.slice(index, match.index) });
     }
     if (match[1]) {
-      spans.push({ text: match[2] ?? '', bold: true });
+      // Inline code: render dim to distinguish from bold
+      spans.push({ text: match[2] ?? '', color: 'white', bold: true });
     } else if (match[3]) {
       spans.push({ text: match[4] ?? '', bold: true });
     } else if (match[5]) {

@@ -25,43 +25,46 @@ export async function runSendCommand(
   let finalState = 0;
   let activeRunId: string | undefined;
   let lastText = '';
+  let completed = false;
 
-  client.onChat((payload: GatewayChatEventPayload) => {
-    if (activeRunId && payload.runId !== activeRunId) return;
+  // Single listener handles both streaming output and completion detection
+  const completionPromise = new Promise<void>(resolve => {
+    client.onChat((payload: GatewayChatEventPayload) => {
+      if (activeRunId && payload.runId !== activeRunId) return;
 
-    const partText =
-      payload.message?.content
-        ?.filter((part: GatewayContentPart) => part.type === 'text')
-        .map((part: GatewayContentPart) => (part.type === 'text' ? part.text : ''))
-        .join('\n') ??
-      payload.message?.text ??
-      '';
+      const partText =
+        payload.message?.content
+          ?.filter((part: GatewayContentPart) => part.type === 'text')
+          .map((part: GatewayContentPart) => (part.type === 'text' ? part.text : ''))
+          .join('\n') ??
+        payload.message?.text ??
+        '';
 
-    if (options.json) {
-      writeOutput(`${JSON.stringify(payload)}\n`, Boolean(options.noColor));
-      if (payload.state !== 'delta') finalState = payload.state === 'error' ? 1 : 0;
-      return;
-    }
+      if (options.json) {
+        writeOutput(`${JSON.stringify(payload)}\n`, Boolean(options.noColor));
+      } else if (partText.startsWith(lastText)) {
+        writeOutput(partText.slice(lastText.length), Boolean(options.noColor));
+        lastText = partText;
+      } else if (partText) {
+        writeOutput(`\n${partText}`, Boolean(options.noColor));
+        lastText = partText;
+      }
 
-    if (partText.startsWith(lastText)) {
-      writeOutput(partText.slice(lastText.length), Boolean(options.noColor));
-      lastText = partText;
-    } else if (partText) {
-      writeOutput(`\n${partText}`, Boolean(options.noColor));
-      lastText = partText;
-    }
-
-    if (payload.state !== 'delta') {
-      writeOutput('\n', Boolean(options.noColor));
-      finalState = payload.state === 'error' ? 1 : 0;
-    }
+      if (payload.state !== 'delta' && !completed) {
+        completed = true;
+        writeOutput('\n', Boolean(options.noColor));
+        finalState = payload.state === 'error' ? 1 : 0;
+        resolve();
+      }
+    });
   });
 
   try {
+    const sessionKey = options.session ?? config.session.lastSessionKey;
     await client.connect({
       url: config.gateway.url,
       token,
-      sessionKey: options.session ?? config.session.lastSessionKey,
+      sessionKey,
       minProtocol: 3,
       maxProtocol: 3,
       connectTimeoutMs: config.gateway.connectTimeoutMs,
@@ -69,24 +72,19 @@ export async function runSendCommand(
     });
 
     const response = await client.sendChat({
-      sessionKey: options.session ?? config.session.lastSessionKey,
+      sessionKey,
       text: message,
       thinkingMode: config.ui.thinkingMode as ThinkingMode,
       clientRequestId: `send:${Date.now()}`,
     });
     activeRunId = response.runId;
 
-    // Wait for run to complete
-    await new Promise<void>(resolve => {
-      client.onChat((payload: GatewayChatEventPayload) => {
-        if (payload.runId === activeRunId && payload.state !== 'delta') resolve();
-      });
-    });
-
+    await completionPromise;
     await client.disconnect();
     return finalState;
   } catch (error) {
     process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
+    await client.disconnect().catch(() => undefined);
     return 1;
   }
 }
