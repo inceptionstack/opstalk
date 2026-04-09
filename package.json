@@ -1,0 +1,27 @@
+{
+  "name": "opstalk",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "opstalk": "./dist/cli/cli.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "commander": "^14.0.1",
+    "ink": "^6.2.3",
+    "react": "^19.1.0",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.1.2",
+    "@types/ws": "^8.18.1",
+    "typescript": "^5.8.3"
+  }
+}
