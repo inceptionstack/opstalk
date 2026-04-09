@@ -1,117 +1,116 @@
-# OpsTalk — Design Brief
+# OpsTalk — Design Brief (v2: AWS DevOps Agent)
 
 ## What Is This?
 
-An interactive terminal chat CLI for OpenClaw — think "Claude Code but for ops." Built with Ink v6 + React 19 (the same stack as `aws/agentcore-cli`).
+An interactive terminal chat CLI for **AWS DevOps Agent** — think "Claude Code but for ops." Built with Ink v6 + React 19 (the same stack as `aws/agentcore-cli`).
 
-OpsTalk connects to the OpenClaw Gateway via WebSocket (same JSON frame protocol as loki-chat web UI) and provides a rich terminal experience for chatting with the agent.
+OpsTalk connects to the AWS DevOps Agent API to create chats, send messages, and stream responses. It provides a rich terminal experience for having operational conversations with your DevOps Agent.
 
 ## Target Users
 
-DevOps engineers, SREs, cloud architects who live in the terminal and want to interact with their OpenClaw agent without leaving it.
+DevOps engineers, SREs, cloud architects who live in the terminal and want to interact with AWS DevOps Agent without opening the console.
 
-## Reference Architecture
+## AWS DevOps Agent API
 
-Study `aws/agentcore-cli` (cloned at `/mnt/ebs-data/builds/agentcore-cli/`) for patterns:
-- `src/cli/tui/` — screens, components, hooks, context
-- `src/cli/tui/screens/invoke/InvokeScreen.tsx` — the chat screen (closest to what we need)
-- `src/cli/tui/components/` — Panel, Screen, TextInput, Header, ScrollableList, etc.
-- Uses Commander for CLI routing, Ink for rendering, React for state
+### Authentication
+- AWS IAM credentials (same as `aws` CLI — instance profile, env vars, config file, SSO)
+- Region-aware: service endpoint is `devops-agent.<region>.amazonaws.com`
+- SendMessage uses data plane prefix: `dp.devops-agent.<region>.amazonaws.com`
 
-## Tech Stack
+### API Flow
+1. **List agent spaces**: `ListAgentSpaces` → get `agentSpaceId`
+2. **Create chat**: `CreateChat(agentSpaceId, userId, userType)` → `executionId`
+3. **Send message**: `SendMessage(agentSpaceId, executionId, content, userId)` → event stream
+4. **List chats**: `ListChats(agentSpaceId, userId)` → previous chat sessions
+5. **Get journal**: `ListJournalRecords(agentSpaceId, executionId)` → conversation history
 
-- **TypeScript** (strict mode)
-- **Ink v6** (`ink`, `ink-spinner`, `ink-link`)
-- **React 19**
-- **Commander** for CLI entry point
-- **esbuild** for bundling (single-file dist)
-- **No other runtime deps** — keep it minimal
-
-## OpenClaw Gateway Protocol (JSON over WebSocket)
-
-Connection flow:
-1. Connect to `ws://host:port/` 
-2. Gateway sends `{ type: "event", event: "connect.challenge", payload: { nonce } }`
-3. Client sends `{ type: "req", id, method: "connect", params: { minProtocol: 3, maxProtocol: 3, client: { id: "opstalk", version, platform: "cli", mode: "webchat" }, role: "operator", scopes: [...], caps: ["tool-events"], auth: { token } } }`
-4. Gateway responds `{ type: "res", id, ok: true, payload }`
-5. Now connected — can send `chat.history`, `chat.send`, `chat.abort`
-
-Chat events arrive as:
-```json
-{ "type": "event", "event": "chat", "payload": { "runId": "...", "state": "delta|final|aborted|error", "message": { "role": "assistant", "content": [...], "text": "..." } } }
+### SendMessage Event Stream
+Responses stream via HTTP event stream (not WebSocket). Events in order:
+```
+responseCreated → responseInProgress → 
+  contentBlockStart(index, type, id) → 
+  contentBlockDelta(index, delta: {textDelta: {text}}) → ... → 
+  contentBlockStop(index, type, text, last?) → 
+responseCompleted(responseId, usage) | responseFailed(errorCode, errorMessage)
 ```
 
-Content parts: `text`, `thinking`, `tool_use`, `tool_result`, `image_url`
+Content block types: text, structured JSON (tool use)
+Delta model: incremental text fragments (APPEND, not replace)
+Heartbeat events keep connection alive during idle.
 
-Delta text is **cumulative** — replace previous message, don't append.
+### Key Differences from OpenClaw
+- **HTTP event stream, not WebSocket** — each SendMessage is a POST that streams events
+- **IAM auth, not token** — uses AWS SDK credential chain
+- **Agent spaces** — must select/configure which agent space to talk to
+- **Execution = chat session** — executionId is the conversation thread
+- **Deltas are incremental** (append), not cumulative (replace)
+- **No "thinking" mode toggle** — agent controls its own reasoning
+- **No session key** — chat identified by executionId
 
-## Screens / Views
+## Tech Stack (unchanged)
 
-### 1. Token Gate (first run)
-- If no token saved, prompt for gateway token
-- Validate by attempting connection
-- Save to `~/.config/opstalk/config.json` on success
-- Show connection status with spinner
-
-### 2. Chat Screen (main view)
-- **Header**: agent name, session key, connection status (dot indicator)
-- **Messages area**: scrollable conversation with colored output
-  - User messages: blue `> message`
-  - Assistant text: green (rendered markdown — bold, italic, code blocks, lists)
-  - Thinking blocks: magenta/dim, collapsible with `[thinking...]` summary
-  - Tool calls: cyan `🔧 tool_name` with dim args
-  - Tool results: dim, truncated
-  - System messages: dim yellow
-  - Errors: red
-  - Streaming: show cursor/spinner on last line during delta
-- **Input area**: multi-line text input at bottom
-  - Enter to send
-  - Esc to cancel input / go to scroll mode
-  - `!command` for slash commands
-- **Status bar**: connection state, session key, thinking mode indicator
-
-### 3. Slash Commands
-- `/quit` or `/exit` — disconnect and exit
-- `/clear` — clear message history display
-- `/session [key]` — switch session (default: "main")
-- `/thinking [off|concise|verbose]` — toggle thinking mode
-- `/abort` — cancel current run
-- `/history [n]` — reload last n messages
-- `/token` — change gateway token
-- `/help` — show commands
-
-## Keyboard Shortcuts (when in scroll/chat mode, not input)
-- `i` or `Enter` — start typing
-- `↑↓` — scroll conversation
-- `PgUp/PgDn` — scroll page
-- `Ctrl+C` — abort current run or exit
-- `n` — new session / clear
+- **TypeScript** (strict mode)
+- **Ink v6** + **React 19**
+- **Commander** for CLI entry point
+- **@aws-sdk/client-devops-agent** or raw AWS SDK HTTP calls
+- **tsc** for compilation (no bundler)
+- **No ink-spinner, ink-link** — inline implementations
 
 ## Config File
 
 `~/.config/opstalk/config.json`:
 ```json
 {
-  "gateway": {
-    "url": "ws://127.0.0.1:3001",
-    "token": "..."
-  },
-  "session": "main",
-  "thinkingMode": "off"
+  "region": "us-east-1",
+  "agentSpaceId": "my-space",
+  "userId": "roy",
+  "userType": "IAM",
+  "ui": {
+    "thinkingMode": "off"
+  }
 }
 ```
 
-Override with CLI flags: `--gateway-url`, `--token`, `--session`
+Override with CLI flags: `--region`, `--agent-space-id`, `--user-id`
+Or env vars: `OPSTALK_REGION`, `OPSTALK_AGENT_SPACE_ID`
+
+## Screens / Views
+
+### 1. Setup Screen (first run)
+- If no agentSpaceId configured, list available agent spaces
+- Let user select one (or enter manually)
+- Save to config
+- Validate by calling ListChats
+
+### 2. Chat Screen (main view)  
+- **Header**: agent space name, execution ID, connection status
+- **Messages area**: scrollable conversation
+  - User messages: blue `> message`
+  - Assistant text: green (rendered markdown)
+  - Tool/function calls: cyan `🔧 tool_name` with dim args (from JSON content blocks)
+  - Errors: red
+  - Streaming: show spinner + incremental text during contentBlockDelta
+- **Input area**: multi-line text input at bottom
+- **Status bar**: region, agent space, execution ID, streaming state
+
+### 3. Slash Commands
+- `/quit` or `/exit` — exit
+- `/clear` — clear display
+- `/new` — create new chat (new execution)
+- `/chats` — list recent chats, select one to resume
+- `/space [id]` — switch agent space
+- `/abort` — cancel (if supported)
+- `/help` — show commands
 
 ## CLI Entry Point
 
 ```
-opstalk                    # Interactive chat (default session "main")
-opstalk --session ops      # Different session
-opstalk --token <token>    # Override token
-opstalk --url ws://...     # Override gateway URL  
-opstalk send "message"     # One-shot: send message, print response, exit
-opstalk history            # Print recent history and exit
+opstalk                           # Interactive chat (creates new chat or resumes)
+opstalk --agent-space-id <id>     # Specify agent space
+opstalk --region us-west-2        # Override region
+opstalk send "what's happening?"  # One-shot: send, stream response, exit
+opstalk chats                     # List recent chats
+opstalk spaces                    # List agent spaces
 ```
 
 ## Project Structure
@@ -119,61 +118,78 @@ opstalk history            # Print recent history and exit
 ```
 src/
   cli/
-    cli.ts                 # Commander entry point
+    cli.ts                    # Commander entry point
     commands/
-      chat/
-        command.tsx         # Chat command (default)
-      send/
-        command.tsx         # One-shot send
-      history/
-        command.tsx         # Print history
+      chat/command.tsx        # Interactive chat (default)
+      send/command.ts         # One-shot send
+      chats/command.ts        # List chats
+      spaces/command.ts       # List agent spaces
   tui/
+    App.tsx
     screens/
-      ChatScreen.tsx        # Main chat screen
-      TokenScreen.tsx       # Token entry
+      SetupScreen.tsx         # Agent space selection
+      ChatScreen.tsx          # Main chat
     components/
-      Header.tsx
-      MessageList.tsx       # Scrollable message display
-      MessageBubble.tsx     # Single message rendering  
-      TextInput.tsx         # Multi-line input
+      ChatHeader.tsx
+      MessageViewport.tsx
+      MessageBlock.tsx
+      AssistantMessage.tsx
+      ChatComposer.tsx
       StatusBar.tsx
-      ThinkingBlock.tsx     # Collapsible thinking
-      ToolCall.tsx          # Tool use display
-      Spinner.tsx           # Streaming indicator
+      Spinner.tsx
+      Panel.tsx, Screen.tsx
     hooks/
-      useGatewayClient.ts   # WebSocket connection hook
-      useScrollable.ts      # Scroll management
-      useConfig.ts          # Config file management
+      useComposer.ts
+      useChatViewport.ts
+      useDevOpsAgent.ts       # API integration hook
+      useKeymap.ts
     context/
-      GatewayContext.tsx     # Gateway client context provider
-  gateway/
-    client.ts              # WebSocket client (protocol implementation)
-    types.ts               # Protocol types
-    config.ts              # Config file read/write
-  utils/
-    markdown.ts            # Terminal markdown (bold, italic, code)
+      ConfigContext.tsx
+      DevOpsAgentContext.tsx   # Agent session state
+      LayoutContext.tsx
+    lib/
+      types.ts
+      markdown.ts
+      renderRows.ts
+      wrap.ts, width.ts
+  agent/
+    client.ts                 # AWS DevOps Agent API client (Sigv4 HTTP)
+    types.ts                  # API types
+    eventParser.ts            # Parse SSE/event stream from SendMessage
+  config/
+    paths.ts
+    storage.ts
 package.json
 tsconfig.json
-esbuild.config.ts          # Bundle config
 ```
 
 ## Design Principles
 
-1. **Fast startup** — connect and show UI < 500ms
-2. **Streaming first** — deltas render immediately, no buffering
-3. **Terminal-native** — respect terminal width, colors, scrollback
-4. **Keyboard-driven** — full-featured without mouse
-5. **Minimal deps** — Ink + Commander + React, nothing else
-6. **Robust reconnect** — auto-reconnect on disconnect, show status
+1. **Fast startup** — list spaces, create chat < 1s
+2. **Streaming first** — contentBlockDelta renders immediately
+3. **Terminal-native** — colors, word wrap, scrollback
+4. **Keyboard-driven** — input/scroll modes, full readline
+5. **AWS-native auth** — uses standard credential chain (no custom tokens)
+6. **Minimal deps** — Ink + Commander + React + AWS SDK signer
 
-## Phase 1 Deliverable
+## Phase 1 Scope
 
-Write a `DESIGN.md` that proposes:
-1. Component hierarchy diagram (text-based)
-2. State management approach
-3. Gateway client design
-4. Message rendering strategy
-5. Keyboard interaction model
-6. Any deviations from the brief above with rationale
+**IN:**
+- Setup screen (list spaces, pick one, save)
+- Chat screen with input/scroll modes
+- SendMessage streaming with content block rendering
+- CreateChat for new sessions
+- ListChats for resuming
+- ListJournalRecords for history
+- Row-based message rendering
+- Markdown subset (paragraphs, bold, italic, code, bullets)
+- /help, /clear, /new, /chats, /quit
+- `send` and `chats` CLI subcommands
+- XDG config with 0600
 
-Then commit it. Do NOT write implementation code yet — design doc only.
+**OUT (Phase 2):**
+- Tool use rendering (structured JSON blocks)  
+- Investigation integration (list-executions, list-goals)
+- Backlog task management
+- MCP server connection
+- Recommendation viewing
