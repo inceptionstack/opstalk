@@ -112,7 +112,7 @@ export function useDevOpsAgent(config: AppConfig, setConfig: (next: AppConfig) =
           message.blockIndex === event.payload.index && message.streaming
             ? {
                 ...message,
-                text: event.payload.text ?? message.text,
+                text: (event.payload.text && event.payload.text.length > 0) ? event.payload.text : message.text,
                 streaming: false,
               }
             : message,
