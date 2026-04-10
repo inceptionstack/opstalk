@@ -3,8 +3,6 @@ import { debug } from "../../debug.js";
 import { Box, Text, useApp, useInput, useStdout } from "ink";
 
 import type { ChatCommandResult } from "../lib/types.js";
-import { renderRows } from "../lib/renderRows.js";
-import { safeWidth } from "../lib/width.js";
 import { HELP_TEXT } from "../hooks/useKeymap.js";
 import { useComposer } from "../hooks/useComposer.js";
 import { ChatComposer } from "../components/ChatComposer.js";
@@ -67,12 +65,9 @@ export function ChatScreen({
   const reservedRows = 12;
   const viewportHeight = Math.max(6, termRows - reservedRows);
 
-  // Compute total rows for auto-scroll
-  const termWidth = safeWidth(stdout?.columns, 80) - 4;
-  const totalRows = useMemo(
-    () => renderRows(agent.state.messages, termWidth).length,
-    [agent.state.messages, termWidth],
-  );
+  // Use message count as proxy for scroll tracking
+  const messageCount = agent.state.messages.length;
+  const totalRows = messageCount;
 
   // Auto-scroll to bottom when new messages arrive or during streaming
   useEffect(() => {
