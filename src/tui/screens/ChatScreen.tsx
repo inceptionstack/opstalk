@@ -5,7 +5,7 @@ import { Box, Static, Text, useApp, useInput, useStdout } from "ink";
 import type { ChatCommandResult, ChatMessage } from "../lib/types.js";
 import { safeWidth } from "../lib/width.js";
 import { wrapText } from "../lib/wrap.js";
-import { parseMarkdownLine, type StyledLine } from "../lib/terminalMarkdown.js";
+import { parseMarkdownLine, formatTableRows, type StyledLine } from "../lib/terminalMarkdown.js";
 import { HELP_TEXT } from "../hooks/useKeymap.js";
 import { useComposer } from "../hooks/useComposer.js";
 import { ChatComposer } from "../components/ChatComposer.js";
@@ -102,13 +102,17 @@ function RenderedMessage({ msg, width }: { msg: ChatMessage; width: number }): R
 
   const prefix = msg.role === "user" ? "> " : "";
   const fullText = `${prefix}${msg.text}`;
-  const textLines = fullText.split("\n");
+  const rawLines = fullText.split("\n");
+  // Format markdown tables (align columns)
+  const textLines = formatTableRows(rawLines);
 
   return (
     <Box flexDirection="column">
       {textLines.flatMap((textLine, li) => {
-        const wrapped = wrapText(textLine, Math.max(10, width));
-        return wrapped.map((wl, wi) => {
+        // Don't word-wrap table rows (they have fixed column widths)
+        const isTableRow = textLine.startsWith("│") || textLine.startsWith("├");
+        const lines = isTableRow ? [textLine] : wrapText(textLine, Math.max(10, width));
+        return lines.map((wl, wi) => {
           const styled = parseMarkdownLine(wl);
           return <StyledSegments key={`${li}-${wi}`} line={styled} baseColor={color} />;
         });

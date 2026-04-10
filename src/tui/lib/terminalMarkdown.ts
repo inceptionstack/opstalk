@@ -21,6 +21,83 @@ export interface StyledLine {
   segments: StyledSegment[];
 }
 
+// Format markdown table rows: align columns by padding
+export function formatTableRows(lines: string[]): string[] {
+  // Find all table row lines (contain |)
+  const tableRanges: Array<{ start: number; end: number }> = [];
+  let i = 0;
+  while (i < lines.length) {
+    if (lines[i]!.includes("|")) {
+      const start = i;
+      while (i < lines.length && lines[i]!.includes("|")) {
+        i++;
+      }
+      tableRanges.push({ start, end: i });
+    } else {
+      i++;
+    }
+  }
+
+  if (tableRanges.length === 0) return lines;
+
+  const result = [...lines];
+
+  for (const range of tableRanges) {
+    // Parse each row into cells
+    const rows: string[][] = [];
+    const separatorIndices: number[] = [];
+
+    for (let r = range.start; r < range.end; r++) {
+      const line = result[r]!;
+      // Check if it's a separator line (|---|---|)
+      if (/^\|[\s\-:|]+\|$/.test(line.trim())) {
+        separatorIndices.push(r - range.start);
+        rows.push([]);
+        continue;
+      }
+      const cells = line.split("|")
+        .filter((_, idx, arr) => idx > 0 && idx < arr.length - 1)
+        .map((c) => c.trim());
+      if (cells.length === 0) {
+        // Fallback: split by | including edges
+        const allCells = line.split("|").map((c) => c.trim()).filter(Boolean);
+        rows.push(allCells);
+      } else {
+        rows.push(cells);
+      }
+    }
+
+    // Find max width per column
+    const maxCols = Math.max(...rows.map((r) => r.length));
+    const colWidths: number[] = Array(maxCols).fill(0) as number[];
+    for (const row of rows) {
+      for (let c = 0; c < row.length; c++) {
+        colWidths[c] = Math.max(colWidths[c] ?? 0, (row[c] ?? "").length);
+      }
+    }
+
+    // Rebuild formatted lines
+    let rowIdx = 0;
+    for (let r = range.start; r < range.end; r++) {
+      if (separatorIndices.includes(rowIdx)) {
+        // Rebuild separator
+        const sep = colWidths.map((w) => "─".repeat(w + 2)).join("┼");
+        result[r] = `├${sep}┤`;
+      } else {
+        const cells = rows[rowIdx]!;
+        const padded = colWidths.map((w, ci) => {
+          const cell = cells[ci] ?? "";
+          return ` ${cell.padEnd(w)} `;
+        }).join("│");
+        result[r] = `│${padded}│`;
+      }
+      rowIdx++;
+    }
+  }
+
+  return result;
+}
+
 export function parseMarkdownLine(line: string): StyledLine {
   const trimmed = line.trimStart();
   const indent = line.length - trimmed.length;
