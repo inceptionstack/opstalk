@@ -1,0 +1,7 @@
+src/
+.github/
+scripts/
+DESIGN-BRIEF.md
+.codex/
+*.test.ts
+tsconfig.json
