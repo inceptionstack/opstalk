@@ -1,6 +1,6 @@
 {
   "name": "opstalk",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "description": "Interactive terminal chat CLI for AWS DevOps Agent",
   "type": "module",
   "bin": {
@@ -30,5 +30,27 @@
     "@types/react": "^19.1.13",
     "typescript": "^5.9.3",
     "vitest": "^3.2.4"
-  }
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/inceptionstack/opstalk.git"
+  },
+  "homepage": "https://github.com/inceptionstack/opstalk",
+  "keywords": [
+    "aws",
+    "devops",
+    "agent",
+    "cli",
+    "tui",
+    "chat",
+    "terminal",
+    "ink"
+  ],
+  "author": "InceptionStack",
+  "files": [
+    "dist/",
+    "README.md",
+    "LICENSE"
+  ]
 }

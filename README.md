@@ -4,6 +4,8 @@ Interactive terminal chat CLI for AWS DevOps Agent.
 
 [![CI](https://github.com/inceptionstack/opstalk/actions/workflows/ci.yml/badge.svg)](https://github.com/inceptionstack/opstalk/actions/workflows/ci.yml)
 
+![OpsTalk Screenshot](docs/screenshot.jpg)
+
 ## What is OpsTalk?
 
 OpsTalk is an interactive terminal chat CLI for AWS DevOps Agent. Think "Claude Code but for AWS ops": a full-screen terminal interface for chatting with an AWS-backed agent, plus scriptable commands for one-shot prompts and operational workflows. It is built with Ink v6, React 19, and Commander.
@@ -32,16 +34,10 @@ OpsTalk is an interactive terminal chat CLI for AWS DevOps Agent. Think "Claude 
 
 ## Installation
 
-### Quick Install (one-liner)
+### Quick Install
 
 ```bash
-npm install -g https://github.com/inceptionstack/opstalk/releases/latest/download/opstalk-0.1.0.tgz
-```
-
-Or using curl to always grab the latest version:
-
-```bash
-curl -sL $(curl -s https://api.github.com/repos/inceptionstack/opstalk/releases/latest | grep browser_download_url | grep .tgz | cut -d '"' -f 4) -o /tmp/opstalk.tgz && npm install -g /tmp/opstalk.tgz
+npm install -g opstalk
 ```
 
 ### Install from source

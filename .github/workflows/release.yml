@@ -20,6 +20,7 @@ jobs:
         with:
           node-version: 22.x
           cache: npm
+          registry-url: https://registry.npmjs.org
 
       - name: Install git-secrets
         run: |
@@ -39,6 +40,11 @@ jobs:
 
       - name: Build
         run: npm run build
+
+      - name: Publish to npm
+        run: npm publish --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Create package tarball
         run: npm pack
