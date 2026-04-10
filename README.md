@@ -6,9 +6,18 @@ Interactive terminal chat CLI for AWS DevOps Agent.
 
 ![OpsTalk Screenshot](docs/screenshot.jpg)
 
-## What is OpsTalk?
+## What is AWS DevOps Agent?
 
-OpsTalk is an interactive terminal chat CLI for AWS DevOps Agent. Think "Claude Code but for AWS ops": a full-screen terminal interface for chatting with an AWS-backed agent, plus scriptable commands for one-shot prompts and operational workflows. It is built with Ink v6, React 19, and Commander.
+[AWS DevOps Agent](https://aws.amazon.com/devops-agent/) is an AI-powered service that investigates operational issues, explores your AWS infrastructure, reviews recommendations, and answers questions about your environment — all through natural conversation. It connects to your AWS account, understands your resources, and can run investigations across EC2, Lambda, CloudWatch, and more.
+
+## Why OpsTalk?
+
+The AWS Console is great, but sometimes you just want to talk to your infrastructure from the terminal. OpsTalk gives you a full-screen chat interface for AWS DevOps Agent right where you already work — your terminal. No browser tabs, no context switching.
+
+- **Stay in the terminal** — investigate incidents, check resources, and review recommendations without leaving your shell
+- **Script it** — use `opstalk send "any critical issues?"` in cron jobs, runbooks, or CI pipelines
+- **Stream responses** — watch the agent think and work in real time with tool call visibility
+- **Resume conversations** — pick up where you left off with persistent chat history
 
 ## Features
 
