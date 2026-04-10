@@ -28,6 +28,16 @@ jobs:
           node-version: ${{ matrix.node-version }}
           cache: npm
 
+      - name: Install git-secrets
+        run: |
+          git clone --depth 1 https://github.com/awslabs/git-secrets.git /tmp/git-secrets
+          cd /tmp/git-secrets && sudo make install
+
+      - name: Scan for secrets
+        run: |
+          git secrets --register-aws
+          git secrets --scan
+
       - name: Install dependencies
         run: npm ci
 
