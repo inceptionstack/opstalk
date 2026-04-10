@@ -10,17 +10,31 @@ export function ChatComposer(props: {
   const before = props.value.slice(0, props.cursor);
   const current = props.value[props.cursor] ?? " ";
   const after = props.value.slice(props.cursor + 1);
+  const cols = process.stdout.columns ?? 80;
 
   return (
     <Box flexDirection="column">
-      {props.statusLine ? <Text dimColor>{props.statusLine}</Text> : null}
-      <Text dimColor>Enter to send. Ctrl+J inserts a newline.</Text>
-      <Text>
-        <Text color="cyan">&gt; </Text>
-        <Text>{before}</Text>
-        <Text inverse>{current}</Text>
-        <Text>{after}</Text>
-        {!props.value && <Text dimColor>{props.disabled ? "Streaming..." : "Ask the DevOps Agent"}</Text>}
+      <Text dimColor>{"─".repeat(cols)}</Text>
+      <Box>
+        <Text color="cyan">{"› "}</Text>
+        {props.value ? (
+          <Text>
+            {before}
+            <Text inverse>{current}</Text>
+            {after}
+          </Text>
+        ) : (
+          <Text>
+            <Text inverse>{" "}</Text>
+            <Text dimColor>{props.disabled ? " streaming..." : " Ask the DevOps Agent"}</Text>
+          </Text>
+        )}
+      </Box>
+      <Text dimColor>{"─".repeat(cols)}</Text>
+      <Text dimColor>
+        {props.statusLine ?? ""}
+        {"  "}
+        <Text dimColor>enter to send · ctrl+j newline · /help commands</Text>
       </Text>
     </Box>
   );
