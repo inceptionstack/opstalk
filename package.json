@@ -10,7 +10,8 @@
     "build": "tsc",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "prepare": "bash scripts/setup-git-secrets.sh || true"
   },
   "engines": {
     "node": ">=20"

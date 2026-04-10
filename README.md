@@ -32,13 +32,17 @@ OpsTalk is an interactive terminal chat CLI for AWS DevOps Agent. Think "Claude 
 
 ## Installation
 
-### Quick Install (from release)
+### Quick Install (one-liner)
 
 ```bash
-gh release download --repo inceptionstack/opstalk --pattern '*.tgz' -D /tmp && npm install -g /tmp/opstalk-*.tgz
+npm install -g https://github.com/inceptionstack/opstalk/releases/latest/download/opstalk-0.1.0.tgz
 ```
 
-This downloads the latest release tarball and installs it globally. Requires the [GitHub CLI](https://cli.github.com/) with repo access.
+Or using curl to always grab the latest version:
+
+```bash
+curl -sL $(curl -s https://api.github.com/repos/inceptionstack/opstalk/releases/latest | grep browser_download_url | grep .tgz | cut -d '"' -f 4) -o /tmp/opstalk.tgz && npm install -g /tmp/opstalk.tgz
+```
 
 ### Install from source
 
