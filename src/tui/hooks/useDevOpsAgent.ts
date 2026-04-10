@@ -142,15 +142,34 @@ export function useDevOpsAgent(config: AppConfig, setConfig: (next: AppConfig) =
   const assistantFormatsRef = useRef(new Map<number, ReturnType<typeof createAssistantFormatState>>());
   const toolOutputRef = useRef(new Map<number, ToolOutputState>());
   const nextBlockIndexRef = useRef(0);
+  const messagesRef = useRef<ChatMessage[]>([]);
+
+  const replaceMessages = useCallback((messages: ChatMessage[]) => {
+    messagesRef.current = messages;
+    setState((current) => ({
+      ...current,
+      messages,
+    }));
+  }, []);
+
+  const flushBufferedMessages = useCallback(() => {
+    const nextMessages = [...messagesRef.current];
+    setState((current) => ({
+      ...current,
+      messages: nextMessages,
+    }));
+  }, []);
 
   const appendMessage = useCallback((message: ChatMessage) => {
     debug("STATE", `appendMessage role=${message.role} kind=${message.kind} id=${message.id}`, { textLen: message.text.length, streaming: message.streaming });
     if (!message.streaming && message.text) {
       printMessage(message);
     }
+    const nextMessages = [...messagesRef.current, message];
+    messagesRef.current = nextMessages;
     setState((current) => ({
       ...current,
-      messages: [...current.messages, message],
+      messages: nextMessages,
     }));
   }, []);
 
@@ -177,25 +196,22 @@ export function useDevOpsAgent(config: AppConfig, setConfig: (next: AppConfig) =
       } else {
         assistantFormatsRef.current.set(blockIndex, createAssistantFormatState());
       }
-      setState((current) => ({
-        ...current,
-        messages: [
-          ...current.messages,
-          makeMessage({
-            id: event.payload.id ?? `assistant-${blockIndex}`,
-            role: "assistant",
-            kind,
-            text: "",
-            streaming: true,
-            blockId: event.payload.id,
-            blockIndex,
-            toolName: "",
-            toolInput: "",
-            toolStatus: "",
-            toolResult: "",
-          }),
-        ],
-      }));
+      messagesRef.current = [
+        ...messagesRef.current,
+        makeMessage({
+          id: event.payload.id ?? `assistant-${blockIndex}`,
+          role: "assistant",
+          kind,
+          text: "",
+          streaming: true,
+          blockId: event.payload.id,
+          blockIndex,
+          toolName: "",
+          toolInput: "",
+          toolStatus: "",
+          toolResult: "",
+        }),
+      ];
       return;
     }
 
@@ -224,33 +240,30 @@ export function useDevOpsAgent(config: AppConfig, setConfig: (next: AppConfig) =
         writeAssistantDelta(textDelta, formatter);
       }
 
-      setState((current) => ({
-        ...current,
-        messages: current.messages.map((message) => {
-          if (message.blockIndex !== blockIndex || !message.streaming) {
+      messagesRef.current = messagesRef.current.map((message) => {
+        if (message.blockIndex !== blockIndex || !message.streaming) {
+          return message;
+        }
+        if (message.kind === "tool") {
+          const toolState = toolOutputRef.current.get(blockIndex);
+          if (!toolState) {
             return message;
           }
-          if (message.kind === "tool") {
-            const toolState = toolOutputRef.current.get(blockIndex);
-            if (!toolState) {
-              return message;
-            }
 
-            return {
-              ...message,
-              text: toolState.textBuffer,
-              toolName: toolState.toolName,
-              toolInput: toolState.toolInput,
-              toolStatus: toolState.toolStatus,
-              toolResult: toolState.toolResult,
-            };
-          }
-          if (textDelta) {
-            return { ...message, text: `${message.text}${textDelta}` };
-          }
-          return message;
-        }),
-      }));
+          return {
+            ...message,
+            text: toolState.textBuffer,
+            toolName: toolState.toolName,
+            toolInput: toolState.toolInput,
+            toolStatus: toolState.toolStatus,
+            toolResult: toolState.toolResult,
+          };
+        }
+        if (textDelta) {
+          return { ...message, text: `${message.text}${textDelta}` };
+        }
+        return message;
+      });
       return;
     }
 
@@ -272,18 +285,15 @@ export function useDevOpsAgent(config: AppConfig, setConfig: (next: AppConfig) =
         writeLine();
       }
 
-      setState((current) => ({
-        ...current,
-        messages: current.messages.map((message) =>
-          message.blockIndex === blockIndex && message.streaming
-            ? {
-                ...message,
-                text: (event.payload.text && event.payload.text.length > 0) ? event.payload.text : message.text,
-                streaming: false,
-              }
-            : message,
-        ),
-      }));
+      messagesRef.current = messagesRef.current.map((message) =>
+        message.blockIndex === blockIndex && message.streaming
+          ? {
+              ...message,
+              text: (event.payload.text && event.payload.text.length > 0) ? event.payload.text : message.text,
+              streaming: false,
+            }
+          : message,
+      );
     }
   }, []);
 
@@ -326,13 +336,13 @@ export function useDevOpsAgent(config: AppConfig, setConfig: (next: AppConfig) =
         writeLine();
       }
 
+      replaceMessages(messages);
       setState((current) => ({
         ...current,
         executionId,
-        messages,
       }));
     },
-    [client],
+    [client, replaceMessages],
   );
 
   const createNewChat = useCallback(async () => {
@@ -352,15 +362,15 @@ export function useDevOpsAgent(config: AppConfig, setConfig: (next: AppConfig) =
       userType: config.userType,
     });
 
+    replaceMessages([]);
     setState((current) => ({
       ...current,
       executionId: response.executionId,
-      messages: [],
       status: "ready",
     }));
     writeLine(formatSystemMessage(`Started new chat ${response.executionId}`));
     writeLine();
-  }, [client, config.agentSpaceId, config.userId, config.userType]);
+  }, [client, config.agentSpaceId, config.userId, config.userType, replaceMessages]);
 
   const resumeChat = useCallback(
     async (executionId: string) => {
@@ -431,25 +441,26 @@ export function useDevOpsAgent(config: AppConfig, setConfig: (next: AppConfig) =
         updateStreamingBlock(event);
 
         if (event.type === "responseFailed") {
-          appendMessage(
+          messagesRef.current = [
+            ...messagesRef.current,
             makeMessage({
               id: `error-${Date.now()}`,
               role: "error",
               kind: "status",
               text: event.payload.errorMessage ?? event.payload.errorCode ?? "Request failed",
             }),
-          );
+          ];
+          flushBufferedMessages();
+          printMessage(messagesRef.current[messagesRef.current.length - 1]!);
         }
 
         if (event.type === "responseCompleted") {
           debug("STREAM", "responseCompleted — finalizing messages", event.payload);
           writeLine();
-          setState((current) => ({
-            ...current,
-            messages: current.messages.map((message) =>
-              message.streaming ? { ...message, streaming: false, usage: event.payload.usage } : message,
-            ),
-          }));
+          messagesRef.current = messagesRef.current.map((message) =>
+            message.streaming ? { ...message, streaming: false, usage: event.payload.usage } : message,
+          );
+          flushBufferedMessages();
         }
       }
 
@@ -492,26 +503,23 @@ export function useDevOpsAgent(config: AppConfig, setConfig: (next: AppConfig) =
         userType: nextConfig.userType,
       });
 
+      replaceMessages([]);
       setState((current) => ({
         ...current,
         agentSpace: space,
         executionId: created.executionId,
-        messages: [],
         status: "ready",
       }));
       writeLine(formatSystemMessage(`Selected space ${space.agentSpaceId}`));
       writeLine(formatSystemMessage(`Started new chat ${created.executionId}`));
       writeLine();
     },
-    [client, config, setConfig],
+    [client, config, replaceMessages, setConfig],
   );
 
   const clearMessages = useCallback(() => {
-    setState((current) => ({
-      ...current,
-      messages: [],
-    }));
-  }, []);
+    replaceMessages([]);
+  }, [replaceMessages]);
 
   const appendSystemMessage = useCallback((text: string) => {
     appendMessage(
