@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
+import { debug } from "../../debug.js";
 import { Box, Text, useApp, useInput, useStdout } from "ink";
 
 import type { ChatCommandResult } from "../lib/types.js";
@@ -156,6 +157,8 @@ export function ChatScreen({
       void agent.loadChats();
     }
   }, [agent, chatPickerOpen]);
+
+  debug("CHATSCREEN", `render: msgs=${agent.state.messages.length} streaming=${agent.state.streaming} status=${agent.state.status} viewportHeight=${viewportHeight} totalRows=${totalRows} scrollOffset=${scrollOffset}`);
 
   return (
     <Screen>

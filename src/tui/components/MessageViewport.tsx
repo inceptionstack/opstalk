@@ -1,4 +1,5 @@
-import React, { useMemo } from "react";
+import React, { useMemo, useEffect } from "react";
+import { debug } from "../../debug.js";
 import { Box, Text, useStdout } from "ink";
 
 import type { ChatMessage } from "../lib/types.js";
@@ -58,6 +59,14 @@ export function MessageViewport({
 
   const allLines = useMemo(() => buildLines(messages, width), [messages, width]);
 
+  useEffect(() => {
+    debug("VIEWPORT", `render: messages=${messages.length} lines=${allLines.length} viewHeight=${viewHeight} width=${width}`);
+    if (allLines.length > 0) {
+      const last = allLines[allLines.length - 1];
+      debug("VIEWPORT", `lastLine: ${JSON.stringify(last)}`);
+    }
+  });
+
   // Default offset = stick to bottom
   const maxOffset = Math.max(0, allLines.length - viewHeight);
   const offset = offsetOverride ?? maxOffset;
@@ -66,6 +75,8 @@ export function MessageViewport({
   // Slice visible lines, then pad with empty lines to keep fixed height
   const visible = allLines.slice(effectiveOffset, effectiveOffset + viewHeight);
   const padCount = Math.max(0, viewHeight - visible.length);
+
+  debug("VIEWPORT", `showing offset=${effectiveOffset} visible=${visible.length} pad=${padCount} maxOffset=${maxOffset}`);
 
   return (
     <Panel title={title}>

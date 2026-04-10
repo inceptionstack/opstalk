@@ -5,6 +5,7 @@ import { runChatCommand } from "./commands/chat/command.js";
 import { runChatsCommand } from "./commands/chats/command.js";
 import { runSendCommand } from "./commands/send/command.js";
 import { runSpacesCommand } from "./commands/spaces/command.js";
+import { initDebug } from "../debug.js";
 import type { AppConfig } from "../tui/lib/types.js";
 
 function collectOverrides(options: {
@@ -27,8 +28,13 @@ program
   .option("--region <region>", "AWS region")
   .option("--agent-space-id <id>", "Agent space ID")
   .option("--user-id <id>", "User identifier")
+  .option("--debug", "Enable debug logging to /tmp/opstalk-debug-*.log")
 
   .action(async (options) => {
+    if (options.debug) {
+      const logPath = initDebug();
+      console.error(`[opstalk] Debug log: ${logPath}`);
+    }
     await runChatCommand(collectOverrides(options));
   });
 

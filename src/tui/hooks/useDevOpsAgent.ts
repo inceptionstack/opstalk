@@ -1,3 +1,4 @@
+import { debug } from "../../debug.js";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { DevOpsAgentClient } from "../../agent/client.js";
@@ -53,6 +54,7 @@ export function useDevOpsAgent(config: AppConfig, setConfig: (next: AppConfig) =
   });
 
   const appendMessage = useCallback((message: ChatMessage) => {
+    debug("STATE", `appendMessage role=${message.role} kind=${message.kind} id=${message.id}`, { textLen: message.text.length, streaming: message.streaming });
     setState((current) => ({
       ...current,
       messages: [...current.messages, message],
@@ -61,6 +63,7 @@ export function useDevOpsAgent(config: AppConfig, setConfig: (next: AppConfig) =
 
   const updateStreamingBlock = useCallback((event: SendMessageEvent) => {
     if (event.type === "contentBlockStart") {
+      debug("EVENT", "contentBlockStart", { index: event.payload.index, type: event.payload.type, id: event.payload.id });
       setState((current) => ({
         ...current,
         messages: [
@@ -80,6 +83,7 @@ export function useDevOpsAgent(config: AppConfig, setConfig: (next: AppConfig) =
     }
 
     if (event.type === "contentBlockDelta") {
+      debug("EVENT", "contentBlockDelta", { index: event.payload.index, deltaLen: (event.payload.delta?.textDelta?.text ?? "").length });
       const deltaText =
         event.payload.delta?.textDelta?.text ??
         event.payload.delta?.jsonDelta?.partialJson ??
@@ -101,6 +105,7 @@ export function useDevOpsAgent(config: AppConfig, setConfig: (next: AppConfig) =
     }
 
     if (event.type === "contentBlockStop") {
+      debug("EVENT", "contentBlockStop", { index: event.payload.index, textLen: (event.payload.text ?? "").length });
       setState((current) => ({
         ...current,
         messages: current.messages.map((message) =>
@@ -232,6 +237,7 @@ export function useDevOpsAgent(config: AppConfig, setConfig: (next: AppConfig) =
         }),
       );
 
+      debug("SEND", `sendMessage start, executionId=${executionId}`);
       setState((current) => ({
         ...current,
         streaming: true,
@@ -245,6 +251,7 @@ export function useDevOpsAgent(config: AppConfig, setConfig: (next: AppConfig) =
         content,
         userId: config.userId,
       })) {
+        debug("STREAM", `event type=${event.type}`, event.payload);
         updateStreamingBlock(event);
 
         if (event.type === "responseFailed") {
@@ -259,6 +266,7 @@ export function useDevOpsAgent(config: AppConfig, setConfig: (next: AppConfig) =
         }
 
         if (event.type === "responseCompleted") {
+          debug("STREAM", "responseCompleted — finalizing messages", event.payload);
           setState((current) => ({
             ...current,
             messages: current.messages.map((message) =>
@@ -268,11 +276,15 @@ export function useDevOpsAgent(config: AppConfig, setConfig: (next: AppConfig) =
         }
       }
 
-      setState((current) => ({
+      debug("SEND", "streaming done, setting status=ready");
+      setState((current) => {
+        debug("STATE", `final state: ${current.messages.length} messages`, current.messages.map(m => ({ id: m.id, role: m.role, textLen: m.text.length, streaming: m.streaming })));
+        return {
         ...current,
         streaming: false,
         status: "ready",
-      }));
+      };
+      });
 
       void loadChats();
     },
