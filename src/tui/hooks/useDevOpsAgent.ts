@@ -148,18 +148,22 @@ export function useDevOpsAgent(config: AppConfig, setConfig: (next: AppConfig) =
         debug("EVENT", "parsing buffered JSON", { index: event.payload.index, bufferLen: buffered.length });
         try {
           const parsed = JSON.parse(buffered) as Record<string, unknown>;
+          debug("EVENT", "parsed JSON", { type: parsed.type, name: (parsed as Record<string,unknown>).name, keys: Object.keys(parsed) });
           setState((current) => ({
             ...current,
             messages: current.messages.map((message) => {
               if (message.blockIndex !== event.payload.index || message.kind !== "tool") {
                 return message;
               }
+              debug("EVENT", "matched tool message", { blockIndex: message.blockIndex, parsedType: parsed.type });
               if (parsed.type === "tool_call") {
                 const name = (parsed.name as string) ?? message.toolName;
                 const input = (parsed.input ?? {}) as Record<string, unknown>;
+                debug("EVENT", "tool_call parsed", { name, inputKeys: Object.keys(input), hasContent: typeof input.content === "string", contentLen: typeof input.content === "string" ? input.content.length : 0 });
                 let artifactContent = message.artifactContent;
                 if (name === "create_artifact" && typeof input.content === "string") {
                   artifactContent = (input.content as string).replace(/\\n/g, "\n");
+                  debug("EVENT", "artifact content extracted", { len: artifactContent.length, first100: artifactContent.slice(0, 100) });
                 }
                 return {
                   ...message,
