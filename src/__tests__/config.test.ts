@@ -26,11 +26,6 @@ async function importStorage() {
 describe("config storage", () => {
   beforeEach(() => {
     process.env = { ...ORIGINAL_ENV };
-    delete process.env.AWS_REGION;
-    delete process.env.AWS_DEFAULT_REGION;
-    delete process.env.OPSTALK_REGION;
-    delete process.env.OPSTALK_AGENT_SPACE_ID;
-    delete process.env.OPSTALK_USER_ID;
     readFileMock.mockReset();
     mkdirMock.mockReset();
     writeFileMock.mockReset();
