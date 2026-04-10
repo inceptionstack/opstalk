@@ -20,11 +20,13 @@ function buildLines(messages: ChatMessage[], width: number): MessageLine[] {
     const color =
       msg.role === "user"
         ? "blue"
-        : msg.role === "assistant"
-          ? "green"
-          : msg.role === "error"
-            ? "red"
-            : "gray";
+        : msg.kind === "tool"
+          ? "gray"
+          : msg.role === "assistant"
+            ? "green"
+            : msg.role === "error"
+              ? "red"
+              : "gray";
 
     const prefix = msg.role === "user" ? "> " : "";
     const raw = `${prefix}${msg.text}`;

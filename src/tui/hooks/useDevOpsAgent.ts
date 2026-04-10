@@ -137,6 +137,11 @@ export function useDevOpsAgent(config: AppConfig, setConfig: (next: AppConfig) =
             }
             return message;
           }
+          // For tool messages, skip "Done" text
+          if (message.kind === "tool" && textDelta) {
+            const cleanText = textDelta === "Done" ? "" : textDelta;
+            return cleanText ? { ...message, text: `${message.text}${cleanText}` } : message;
+          }
           // For regular text messages, only use textDelta
           if (textDelta) {
             return { ...message, text: `${message.text}${textDelta}` };
