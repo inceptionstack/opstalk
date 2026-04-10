@@ -144,7 +144,15 @@ export function useDevOpsAgent(config: AppConfig, setConfig: (next: AppConfig) =
           }
           // For regular text messages, only use textDelta
           if (textDelta) {
-            return { ...message, text: `${message.text}${textDelta}` };
+            // Clean up: strip JSON metadata fragments that leak through,
+            // and convert literal \n to actual newlines
+            let cleanedDelta = textDelta;
+            // Remove JSON content block wrappers like {"type":"text","version":1},{"content":"..."}
+            cleanedDelta = cleanedDelta.replace(/\{"type":\s*"text"[^}]*\}/g, "");
+            cleanedDelta = cleanedDelta.replace(/\{"content":\s*"/g, "");
+            // Convert literal \n to actual newlines
+            cleanedDelta = cleanedDelta.replace(/\\n/g, "\n");
+            return { ...message, text: `${message.text}${cleanedDelta}` };
           }
           return message;
         }),
