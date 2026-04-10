@@ -27,6 +27,7 @@ program
   .option("--region <region>", "AWS region")
   .option("--agent-space-id <id>", "Agent space ID")
   .option("--user-id <id>", "User identifier")
+
   .action(async (options) => {
     await runChatCommand(collectOverrides(options));
   });
@@ -38,7 +39,8 @@ program
   .option("--agent-space-id <id>", "Agent space ID")
   .option("--user-id <id>", "User identifier")
   .action(async (content: string, options) => {
-    await runSendCommand(content, collectOverrides(options));
+    const go = (program as unknown as { opts(): {region?: string; agentSpaceId?: string; userId?: string} }).opts();
+    await runSendCommand(content, collectOverrides({ ...go, ...options }));
   });
 
 program
@@ -46,8 +48,9 @@ program
   .option("--region <region>", "AWS region")
   .option("--agent-space-id <id>", "Agent space ID")
   .option("--user-id <id>", "User identifier")
-  .action(async (options) => {
-    await runChatsCommand(collectOverrides(options));
+  .action(async function(this: unknown, options) {
+    const globalOpts = (program as unknown as { opts(): {region?: string; agentSpaceId?: string; userId?: string} }).opts();
+    await runChatsCommand(collectOverrides({ ...globalOpts, ...options }));
   });
 
 program

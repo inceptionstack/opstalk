@@ -3,10 +3,8 @@ import { loadConfig, mergeConfig } from "../../../config/storage.js";
 import type { AppConfig } from "../../../tui/lib/types.js";
 
 export async function runSpacesCommand(overrides: Partial<AppConfig>): Promise<void> {
-  const config = mergeConfig({
-    ...(await loadConfig()),
-    ...overrides,
-  });
+  const base = await loadConfig();
+  const config = mergeConfig({ ...base, ...Object.fromEntries(Object.entries(overrides).filter(([,v]) => v !== undefined)) });
 
   const client = new DevOpsAgentClient({ region: config.region });
   const response = await client.listAgentSpaces();

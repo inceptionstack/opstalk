@@ -39,12 +39,15 @@ export async function saveConfig(config: AppConfig): Promise<void> {
 }
 
 export function mergeConfig(partial: Partial<AppConfig>): AppConfig {
+  const clean = Object.fromEntries(
+    Object.entries(partial).filter(([, v]) => v !== undefined)
+  ) as Partial<AppConfig>;
   return {
     ...DEFAULT_CONFIG,
-    ...partial,
+    ...clean,
     ui: {
       ...DEFAULT_CONFIG.ui,
-      ...partial.ui,
+      ...(clean.ui ?? {}),
     },
   };
 }

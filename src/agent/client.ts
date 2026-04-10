@@ -1,6 +1,8 @@
 import crypto from "node:crypto";
 
-import { defaultProvider } from "@aws-sdk/credential-providers";
+// @ts-expect-error CJS/ESM interop
+import { fromNodeProviderChain } from "@aws-sdk/credential-providers";
+import { Hash as NodeHash } from "@smithy/hash-node";
 import { HttpRequest } from "@smithy/protocol-http";
 import { SignatureV4 } from "@smithy/signature-v4";
 
@@ -16,13 +18,10 @@ import type {
   UserType,
 } from "./types.js";
 
-interface JsonResponse<T> {
-  statusCode: number;
-  data: T;
-}
+interface JsonResponse<T> { statusCode: number; data: T; }
 
 interface SignedRequestOptions {
-  hostPrefix?: string;
+  plane?: "cp" | "dp";
   method: string;
   path: string;
   query?: Record<string, string | undefined>;
@@ -30,36 +29,21 @@ interface SignedRequestOptions {
   contentType?: string;
 }
 
-interface ListAgentSpacesOutput {
-  agentSpaces: AgentSpace[];
-  nextToken?: string;
-}
-
-interface CreateChatOutput {
-  executionId: string;
-  createdAt: string;
-}
-
-interface ListChatsOutput {
-  executions: ChatExecution[];
-  nextToken?: string;
-}
-
-interface ListJournalRecordsOutput {
-  records: JournalRecord[];
-  nextToken?: string;
-}
+interface ListAgentSpacesOutput { agentSpaces: AgentSpace[]; nextToken?: string; }
+interface CreateChatOutput { executionId: string; createdAt: string; }
+interface ListChatsOutput { executions: ChatExecution[]; nextToken?: string; }
+interface ListJournalRecordsOutput { records: JournalRecord[]; nextToken?: string; }
 
 function toIsoString(value: unknown): string {
-  if (typeof value === "string") {
-    return value;
-  }
-
-  if (typeof value === "number") {
-    return new Date(value).toISOString();
-  }
-
+  if (typeof value === "string") return value;
+  if (typeof value === "number") return new Date(value).toISOString();
   return new Date(String(value)).toISOString();
+}
+
+class Sha256Hash {
+  private readonly hash = crypto.createHash("sha256");
+  public update(data: string | Uint8Array): void { this.hash.update(data); }
+  public async digest(): Promise<Uint8Array> { return this.hash.digest(); }
 }
 
 export class DevOpsAgentClient {
@@ -70,178 +54,95 @@ export class DevOpsAgentClient {
 
   public constructor(config: DevOpsAgentClientConfig) {
     this.region = config.region;
-    this.credentialsProvider = config.credentialsProvider ?? defaultProvider();
+    this.credentialsProvider = config.credentialsProvider ?? fromNodeProviderChain();
     this.fetchImpl = config.fetchImpl ?? fetch;
     this.signer = new SignatureV4({
       credentials: this.credentialsProvider,
       region: this.region,
-      service: "devops-agent",
-      sha256: class Sha256 {
-        private readonly hash = crypto.createHash("sha256");
-
-        public update(data: string | Uint8Array): void {
-          this.hash.update(data);
-        }
-
-        public async digest(): Promise<Uint8Array> {
-          return this.hash.digest();
-        }
-      } as never,
+      service: "aidevops",
+      sha256: NodeHash.bind(null, "sha256") as never,
     });
   }
 
   public async listAgentSpaces(nextToken?: string, maxResults = 50): Promise<ListAgentSpacesOutput> {
-    const response = await this.sendJson<ListAgentSpacesOutput>({
-      method: "GET",
-      path: "/agents/list-agent-spaces",
-      query: {
-        maxResults: String(maxResults),
-        nextToken,
-      },
+    const r = await this.sendJson<ListAgentSpacesOutput>({
+      plane: "cp", method: "POST", path: "/v1/agentspaces/list",
+      body: JSON.stringify(nextToken ? { nextToken, maxResults } : { maxResults }),
+      contentType: "application/json",
     });
-
-    return {
-      agentSpaces: (response.data.agentSpaces ?? []).map((space) => ({
-        ...space,
-        agentSpaceId: space.agentSpaceId,
-      })),
-      nextToken: response.data.nextToken,
-    };
+    return { agentSpaces: r.data.agentSpaces ?? [], nextToken: r.data.nextToken };
   }
 
   public async createChat(input: CreateChatInput): Promise<CreateChatOutput> {
-    const query = new URLSearchParams({
-      userId: input.userId,
+    const r = await this.sendJson<CreateChatOutput>({
+      plane: "dp", method: "POST",
+      path: `/agents/agent-space/${encodeURIComponent(input.agentSpaceId)}/chat/create`,
+      body: JSON.stringify({ userId: input.userId, userType: input.userType ?? "IAM" }),
+      contentType: "application/json",
     });
+    return { executionId: r.data.executionId, createdAt: toIsoString(r.data.createdAt) };
+  }
 
-    if (input.userType) {
-      query.set("userType", input.userType);
-    }
-
-    const response = await this.sendJson<CreateChatOutput>({
-      method: "POST",
-      path: `/agents/agent-space/${encodeURIComponent(input.agentSpaceId)}/chat`,
-      query: Object.fromEntries(query.entries()),
+  public async listChats(input: { agentSpaceId: string; userId: string; nextToken?: string; maxResults?: number }): Promise<ListChatsOutput> {
+    const r = await this.sendJson<ListChatsOutput>({
+      plane: "dp", method: "GET",
+      path: `/agents/agent-space/${encodeURIComponent(input.agentSpaceId)}/chat/list`,
+      query: { userId: input.userId, maxResults: input.maxResults ? String(input.maxResults) : undefined, nextToken: input.nextToken },
     });
-
     return {
-      executionId: response.data.executionId,
-      createdAt: toIsoString(response.data.createdAt),
+      executions: (r.data.executions ?? []).map(e => ({ ...e, createdAt: toIsoString(e.createdAt), updatedAt: e.updatedAt ? toIsoString(e.updatedAt) : undefined })),
+      nextToken: r.data.nextToken,
     };
   }
 
-  public async listChats(input: {
-    agentSpaceId: string;
-    userId: string;
-    nextToken?: string;
-    maxResults?: number;
-  }): Promise<ListChatsOutput> {
-    const response = await this.sendJson<ListChatsOutput>({
-      method: "GET",
-      path: `/agents/agent-space/${encodeURIComponent(input.agentSpaceId)}/chats`,
-      query: {
-        userId: input.userId,
-        maxResults: input.maxResults ? String(input.maxResults) : undefined,
-        nextToken: input.nextToken,
-      },
+  public async listJournalRecords(input: { agentSpaceId: string; executionId: string; nextToken?: string; limit?: number }): Promise<ListJournalRecordsOutput> {
+    const r = await this.sendJson<ListJournalRecordsOutput>({
+      plane: "dp", method: "POST",
+      path: `/journal/agent-space/${encodeURIComponent(input.agentSpaceId)}/journalRecords`,
+      body: JSON.stringify({ executionId: input.executionId, ...(input.nextToken ? { nextToken: input.nextToken } : {}), ...(input.limit ? { maxResults: input.limit } : {}) }),
+      contentType: "application/json",
     });
-
-    return {
-      executions: (response.data.executions ?? []).map((execution) => ({
-        ...execution,
-        createdAt: toIsoString(execution.createdAt),
-        updatedAt: execution.updatedAt ? toIsoString(execution.updatedAt) : undefined,
-      })),
-      nextToken: response.data.nextToken,
-    };
-  }
-
-  public async listJournalRecords(input: {
-    agentSpaceId: string;
-    executionId: string;
-    nextToken?: string;
-    limit?: number;
-  }): Promise<ListJournalRecordsOutput> {
-    const response = await this.sendJson<ListJournalRecordsOutput>({
-      method: "GET",
-      path: `/agents/agent-space/${encodeURIComponent(input.agentSpaceId)}/executions/${encodeURIComponent(
-        input.executionId,
-      )}/journal`,
-      query: {
-        nextToken: input.nextToken,
-        limit: input.limit ? String(input.limit) : undefined,
-      },
-    });
-
-    return {
-      records: (response.data.records ?? []).map((record) => ({
-        ...record,
-        createdAt: toIsoString(record.createdAt),
-      })),
-      nextToken: response.data.nextToken,
-    };
+    return { records: (r.data.records ?? []).map(r2 => ({ ...r2, createdAt: toIsoString(r2.createdAt) })), nextToken: r.data.nextToken };
   }
 
   public async *sendMessage(input: SendMessageInput): AsyncIterable<SendMessageEvent> {
     const response = await this.sendStreaming({
-      hostPrefix: "dp.",
-      method: "POST",
+      plane: "dp", method: "POST",
       path: `/agents/agent-space/${encodeURIComponent(input.agentSpaceId)}/chat/sendMessage`,
-      body: JSON.stringify({
-        executionId: input.executionId,
-        content: input.content,
-        context: input.context,
-        userId: input.userId,
-      }),
+      body: JSON.stringify({ executionId: input.executionId, content: input.content, userId: input.userId, ...(input.context ? { context: input.context } : {}) }),
       contentType: "application/json",
     });
-
-    if (!response.body) {
-      throw new Error("SendMessage returned an empty response stream");
-    }
-
-    for await (const event of parseEventStream(response.body)) {
-      yield event;
-    }
+    if (!response.body) throw new Error("SendMessage returned empty response stream");
+    for await (const event of parseEventStream(response.body)) yield event;
   }
 
-  public async resolveDefaultUserType(): Promise<UserType> {
-    return "IAM";
-  }
+  public resolveDefaultUserType(): UserType { return "IAM"; }
+
+  private host(plane: "cp" | "dp"): string { return `${plane}.aidevops.${this.region}.api.aws`; }
 
   private async sendJson<T>(options: SignedRequestOptions): Promise<JsonResponse<T>> {
     const response = await this.send(options);
     const text = await response.text();
+    if (!response.ok) throw new Error(`DevOps Agent error (${response.status}): ${text || response.statusText}`);
     const data = text.length > 0 ? (JSON.parse(text) as T) : ({} as T);
-
-    return {
-      statusCode: response.status,
-      data,
-    };
+    return { statusCode: response.status, data };
   }
 
   private async sendStreaming(options: SignedRequestOptions): Promise<Response> {
-    const response = await this.send({
-      ...options,
-      contentType: options.contentType ?? "application/json",
-    });
-
+    const response = await this.send(options);
     if (!response.ok) {
       const errorText = await response.text();
       throw new Error(`DevOps Agent request failed (${response.status}): ${errorText || response.statusText}`);
     }
-
     return response;
   }
 
   private async send(options: SignedRequestOptions): Promise<Response> {
-    const host = `${options.hostPrefix ?? ""}devops-agent.${this.region}.amazonaws.com`;
-    const query = new URLSearchParams();
-
-    for (const [key, value] of Object.entries(options.query ?? {})) {
-      if (value !== undefined && value.length > 0) {
-        query.set(key, value);
-      }
+    const plane = options.plane ?? "cp";
+    const host = this.host(plane);
+    const query: Record<string, string> = {};
+    for (const [k, v] of Object.entries(options.query ?? {})) {
+      if (v !== undefined && v.length > 0) query[k] = v;
     }
 
     const request = new HttpRequest({
@@ -249,33 +150,24 @@ export class DevOpsAgentClient {
       hostname: host,
       method: options.method,
       path: options.path,
-      query: Object.fromEntries(query.entries()),
+      query,
       headers: {
         host,
         accept: "application/json, application/vnd.amazon.eventstream",
         ...(options.contentType ? { "content-type": options.contentType } : {}),
+        ...(options.body ? { "content-length": String(Buffer.byteLength(options.body)) } : {}),
       },
       body: options.body,
     });
 
     const signed = await this.signer.sign(request);
     const url = new URL(`https://${host}${options.path}`);
+    for (const [k, v] of Object.entries(query)) url.searchParams.set(k, v);
 
-    for (const [key, value] of Object.entries(query.entries ? Object.fromEntries(query.entries()) : {})) {
-      url.searchParams.set(key, value);
-    }
-
-    const response = await this.fetchImpl(url, {
+    return this.fetchImpl(url, {
       method: signed.method,
       headers: signed.headers as HeadersInit,
-      body: signed.body as BodyInit | null | undefined,
+      body: options.body as BodyInit | null | undefined,
     });
-
-    if (!response.ok && response.body == null) {
-      const errorText = await response.text();
-      throw new Error(`DevOps Agent request failed (${response.status}): ${errorText || response.statusText}`);
-    }
-
-    return response;
   }
 }
