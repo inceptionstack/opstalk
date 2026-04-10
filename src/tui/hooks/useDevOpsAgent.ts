@@ -64,6 +64,12 @@ export function useDevOpsAgent(config: AppConfig, setConfig: (next: AppConfig) =
   const updateStreamingBlock = useCallback((event: SendMessageEvent) => {
     if (event.type === "contentBlockStart") {
       debug("EVENT", "contentBlockStart", { index: event.payload.index, type: event.payload.type, id: event.payload.id });
+      // Skip duplicate/metadata blocks — only render "text" type blocks
+      const blockType = event.payload.type ?? "text";
+      if (blockType === "final_response" || blockType === "chat_title") {
+        debug("EVENT", `skipping block type=${blockType}`);
+        return;
+      }
       setState((current) => ({
         ...current,
         messages: [
@@ -71,7 +77,7 @@ export function useDevOpsAgent(config: AppConfig, setConfig: (next: AppConfig) =
           makeMessage({
             id: event.payload.id ?? `assistant-${event.payload.index ?? current.messages.length}`,
             role: "assistant",
-            kind: event.payload.type === "json" ? "json" : "text",
+            kind: blockType === "json" ? "json" : "text",
             text: "",
             streaming: true,
             blockId: event.payload.id,
