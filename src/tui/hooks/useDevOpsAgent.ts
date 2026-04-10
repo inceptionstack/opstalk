@@ -1,5 +1,5 @@
 import { debug } from "../../debug.js";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { DevOpsAgentClient } from "../../agent/client.js";
 import type { AgentSpace, ChatExecution, JournalRecord, SendMessageEvent } from "../../agent/types.js";
@@ -45,6 +45,7 @@ function parseJournalRecord(record: JournalRecord): ChatMessage | null {
 }
 
 export function useDevOpsAgent(config: AppConfig, setConfig: (next: AppConfig) => void) {
+  const jsonBufferRef = useRef<Record<number, string>>({});
   const client = useMemo(() => new DevOpsAgentClient({ region: config.region }), [config.region]);
   const [state, setState] = useState<ChatState>({
     messages: [],
@@ -71,6 +72,8 @@ export function useDevOpsAgent(config: AppConfig, setConfig: (next: AppConfig) =
         return;
       }
       const kind = (blockType === "tool_summary" || blockType === "load_skill") ? "tool" : blockType === "json" ? "json" : "text";
+      // Init JSON buffer for this block
+      jsonBufferRef.current[event.payload.index ?? -1] = "";
       setState((current) => ({
         ...current,
         messages: [
@@ -108,42 +111,9 @@ export function useDevOpsAgent(config: AppConfig, setConfig: (next: AppConfig) =
           if (message.blockIndex !== event.payload.index || !message.streaming) {
             return message;
           }
-          // For tool messages, parse jsonDelta to extract tool info
+          // For tool messages, accumulate jsonDelta into buffer (don't parse yet)
           if (message.kind === "tool" && jsonDelta) {
-            try {
-              const parsed = JSON.parse(jsonDelta) as Record<string, unknown>;
-              if (parsed.type === "tool_call") {
-                const name = (parsed.name as string) ?? message.toolName;
-                const input = (parsed.input ?? {}) as Record<string, unknown>;
-                // For create_artifact, extract the content for display
-                let artifactContent = message.artifactContent;
-                if (name === "create_artifact" && typeof input.content === "string") {
-                  // Unescape \n to actual newlines
-                  artifactContent = (input.content as string).replace(/\\n/g, "\n");
-                }
-                return {
-                  ...message,
-                  toolName: name,
-                  toolInput: JSON.stringify(input),
-                  artifactContent,
-                };
-              }
-              if (parsed.type === "tool_result") {
-                const status = (parsed.status as string) ?? "";
-                let resultText = "";
-                const contentArr = parsed.content as Array<{text?: string}> | undefined;
-                if (contentArr?.[0]?.text) {
-                  resultText = contentArr[0].text;
-                }
-                return {
-                  ...message,
-                  toolStatus: status,
-                  toolResult: resultText,
-                };
-              }
-            } catch {
-              // Ignore parse errors on partial JSON
-            }
+            jsonBufferRef.current[event.payload.index ?? -1] = (jsonBufferRef.current[event.payload.index ?? -1] ?? "") + jsonDelta;
             return message;
           }
           // For tool messages, skip "Done" text
@@ -171,6 +141,54 @@ export function useDevOpsAgent(config: AppConfig, setConfig: (next: AppConfig) =
 
     if (event.type === "contentBlockStop") {
       debug("EVENT", "contentBlockStop", { index: event.payload.index, textLen: (event.payload.text ?? "").length });
+      // Parse accumulated JSON buffer for tool messages
+      const blockIdx = event.payload.index ?? -1;
+      const buffered = jsonBufferRef.current[blockIdx];
+      if (buffered) {
+        debug("EVENT", "parsing buffered JSON", { index: event.payload.index, bufferLen: buffered.length });
+        try {
+          const parsed = JSON.parse(buffered) as Record<string, unknown>;
+          setState((current) => ({
+            ...current,
+            messages: current.messages.map((message) => {
+              if (message.blockIndex !== event.payload.index || message.kind !== "tool") {
+                return message;
+              }
+              if (parsed.type === "tool_call") {
+                const name = (parsed.name as string) ?? message.toolName;
+                const input = (parsed.input ?? {}) as Record<string, unknown>;
+                let artifactContent = message.artifactContent;
+                if (name === "create_artifact" && typeof input.content === "string") {
+                  artifactContent = (input.content as string).replace(/\\n/g, "\n");
+                }
+                return {
+                  ...message,
+                  toolName: name,
+                  toolInput: JSON.stringify(input),
+                  artifactContent,
+                };
+              }
+              if (parsed.type === "tool_result") {
+                const status = (parsed.status as string) ?? "";
+                let resultText = "";
+                const contentArr = parsed.content as Array<{text?: string}> | undefined;
+                if (contentArr?.[0]?.text) {
+                  resultText = contentArr[0].text;
+                }
+                return {
+                  ...message,
+                  toolStatus: status,
+                  toolResult: resultText,
+                };
+              }
+              return message;
+            }),
+          }));
+        } catch (e) {
+          debug("EVENT", "failed to parse buffered JSON", { error: String(e), buffer: buffered.slice(0, 200) });
+        }
+        delete jsonBufferRef.current[blockIdx];
+      }
       setState((current) => ({
         ...current,
         messages: current.messages.map((message) =>
