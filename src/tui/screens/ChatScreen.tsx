@@ -1,4 +1,4 @@
-import React, { useEffect } from "react";
+import React from "react";
 import { Box, useApp } from "ink";
 
 import { ChatComposer } from "../components/ChatComposer.js";
@@ -6,7 +6,7 @@ import type { DevOpsAgentContextValue } from "../context/DevOpsAgentContext.js";
 import { useConfig } from "../context/ConfigContext.js";
 import { useComposer } from "../hooks/useComposer.js";
 import { HELP_TEXT } from "../hooks/useKeymap.js";
-import { formatErrorMessage, formatHeader, formatSystemMessage, writeLine } from "../lib/consoleOutput.js";
+import { formatErrorMessage, formatSystemMessage, writeLine } from "../lib/consoleOutput.js";
 
 async function handleSlashCommand(
   value: string,
@@ -86,12 +86,7 @@ export function ChatScreen({
   const { exit } = useApp();
   const { config } = useConfig();
 
-  useEffect(() => {
-    for (const line of formatHeader(config.region, config.agentSpaceId)) {
-      writeLine(line);
-    }
-    writeLine();
-  }, [config.agentSpaceId, config.region]);
+
 
   const composer = useComposer({
     disabled: agent.state.streaming,

@@ -5,7 +5,18 @@ const ANSI = {
   red: "\u001B[31m",
   dim: "\u001B[2m",
   boldGreen: "\u001B[1;32m",
+  // Cursor control
+  clearLine: "\u001B[2K",
+  cursorUp: (n: number) => `\u001B[${n}A`,
+  cursorToCol0: "\r",
 } as const;
+
+// Track how many lines Ink is using so we can write above it
+let inkLines = 4; // separator + prompt + separator + status = 4 lines
+
+export function setInkLineCount(n: number): void {
+  inkLines = n;
+}
 
 export interface AssistantFormatState {
   bold: boolean;
@@ -64,7 +75,7 @@ export function formatAssistantDelta(text: string, state: AssistantFormatState):
       flushPendingStars(state);
     }
 
-    if (char === "\r" || char === "`" || char === "_") {
+    if (char === "\r" || char === "\`" || char === "_") {
       continue;
     }
 
