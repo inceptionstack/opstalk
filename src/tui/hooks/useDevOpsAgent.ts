@@ -13,6 +13,17 @@ function makeMessage(partial: Partial<ChatMessage> & Pick<ChatMessage, "id" | "r
   };
 }
 
+function normalizeBlockIndex(index: number | string | undefined): number | undefined {
+  if (typeof index === "number") {
+    return Number.isFinite(index) ? index : undefined;
+  }
+  if (typeof index === "string" && index.trim().length > 0) {
+    const parsed = Number(index);
+    return Number.isFinite(parsed) ? parsed : undefined;
+  }
+  return undefined;
+}
+
 function parseJournalRecord(record: JournalRecord): ChatMessage | null {
   const text =
     typeof record.content === "string"
@@ -64,7 +75,8 @@ export function useDevOpsAgent(config: AppConfig, setConfig: (next: AppConfig) =
 
   const updateStreamingBlock = useCallback((event: SendMessageEvent) => {
     if (event.type === "contentBlockStart") {
-      debug("EVENT", "contentBlockStart", { index: event.payload.index, type: event.payload.type, id: event.payload.id });
+      const blockIndex = normalizeBlockIndex(event.payload.index);
+      debug("EVENT", "contentBlockStart", { index: blockIndex, type: event.payload.type, id: event.payload.id });
       // Skip duplicate/metadata blocks
       const blockType = event.payload.type ?? "text";
       if (blockType === "final_response" || blockType === "chat_title") {
@@ -72,20 +84,21 @@ export function useDevOpsAgent(config: AppConfig, setConfig: (next: AppConfig) =
         return;
       }
       const kind = (blockType === "tool_summary" || blockType === "load_skill") ? "tool" : blockType === "json" ? "json" : "text";
+      debug("EVENT", "creating tool message", { blockIndex, kind });
       // Init JSON buffer for this block
-      jsonBufferRef.current[event.payload.index ?? -1] = "";
+      jsonBufferRef.current[blockIndex ?? -1] = "";
       setState((current) => ({
         ...current,
         messages: [
           ...current.messages,
           makeMessage({
-            id: event.payload.id ?? `assistant-${event.payload.index ?? current.messages.length}`,
+            id: event.payload.id ?? `assistant-${blockIndex ?? current.messages.length}`,
             role: "assistant",
             kind,
             text: "",
             streaming: true,
             blockId: event.payload.id,
-            blockIndex: event.payload.index,
+            blockIndex,
             toolName: "",
             toolInput: "",
             toolStatus: "",
@@ -97,7 +110,8 @@ export function useDevOpsAgent(config: AppConfig, setConfig: (next: AppConfig) =
     }
 
     if (event.type === "contentBlockDelta") {
-      debug("EVENT", "contentBlockDelta", { index: event.payload.index, deltaLen: (event.payload.delta?.textDelta?.text ?? "").length });
+      const blockIndex = normalizeBlockIndex(event.payload.index);
+      debug("EVENT", "contentBlockDelta", { index: blockIndex, deltaLen: (event.payload.delta?.textDelta?.text ?? "").length });
       const textDelta = event.payload.delta?.textDelta?.text ?? "";
       const jsonDelta = event.payload.delta?.jsonDelta?.partialJson ?? "";
 
@@ -108,12 +122,12 @@ export function useDevOpsAgent(config: AppConfig, setConfig: (next: AppConfig) =
       setState((current) => ({
         ...current,
         messages: current.messages.map((message) => {
-          if (message.blockIndex !== event.payload.index || !message.streaming) {
+          if (message.blockIndex !== blockIndex || !message.streaming) {
             return message;
           }
           // For tool messages, accumulate jsonDelta into buffer (don't parse yet)
           if (message.kind === "tool" && jsonDelta) {
-            jsonBufferRef.current[event.payload.index ?? -1] = (jsonBufferRef.current[event.payload.index ?? -1] ?? "") + jsonDelta;
+            jsonBufferRef.current[blockIndex ?? -1] = (jsonBufferRef.current[blockIndex ?? -1] ?? "") + jsonDelta;
             return message;
           }
           // For tool messages, skip "Done" text
@@ -140,54 +154,61 @@ export function useDevOpsAgent(config: AppConfig, setConfig: (next: AppConfig) =
     }
 
     if (event.type === "contentBlockStop") {
-      debug("EVENT", "contentBlockStop", { index: event.payload.index, textLen: (event.payload.text ?? "").length });
+      const blockIndex = normalizeBlockIndex(event.payload.index);
+      debug("EVENT", "contentBlockStop", { index: blockIndex, textLen: (event.payload.text ?? "").length });
       // Parse accumulated JSON buffer for tool messages
-      const blockIdx = event.payload.index ?? -1;
+      const blockIdx = blockIndex ?? -1;
       const buffered = jsonBufferRef.current[blockIdx];
       if (buffered) {
-        debug("EVENT", "parsing buffered JSON", { index: event.payload.index, bufferLen: buffered.length });
+        debug("EVENT", "parsing buffered JSON", { index: blockIndex, bufferLen: buffered.length });
         try {
           const parsed = JSON.parse(buffered) as Record<string, unknown>;
           debug("EVENT", "parsed JSON", { type: parsed.type, name: (parsed as Record<string,unknown>).name, keys: Object.keys(parsed) });
-          setState((current) => ({
-            ...current,
-            messages: current.messages.map((message) => {
-              if (message.blockIndex !== event.payload.index || message.kind !== "tool") {
+          setState((current) => {
+            debug("EVENT", "messages in state", {
+              count: current.messages.length,
+              msgs: current.messages.map((m) => ({ id: m.id, blockIndex: m.blockIndex, kind: m.kind })),
+            });
+            return {
+              ...current,
+              messages: current.messages.map((message) => {
+                if (message.blockIndex !== blockIndex || message.kind !== "tool") {
+                  return message;
+                }
+                debug("EVENT", "matched tool message", { blockIndex: message.blockIndex, parsedType: parsed.type });
+                if (parsed.type === "tool_call") {
+                  const name = (parsed.name as string) ?? message.toolName;
+                  const input = (parsed.input ?? {}) as Record<string, unknown>;
+                  debug("EVENT", "tool_call parsed", { name, inputKeys: Object.keys(input), hasContent: typeof input.content === "string", contentLen: typeof input.content === "string" ? input.content.length : 0 });
+                  let artifactContent = message.artifactContent;
+                  if (name === "create_artifact" && typeof input.content === "string") {
+                    artifactContent = (input.content as string).replace(/\\n/g, "\n");
+                    debug("EVENT", "artifact content extracted", { len: artifactContent.length, first100: artifactContent.slice(0, 100) });
+                  }
+                  return {
+                    ...message,
+                    toolName: name,
+                    toolInput: JSON.stringify(input),
+                    artifactContent,
+                  };
+                }
+                if (parsed.type === "tool_result") {
+                  const status = (parsed.status as string) ?? "";
+                  let resultText = "";
+                  const contentArr = parsed.content as Array<{text?: string}> | undefined;
+                  if (contentArr?.[0]?.text) {
+                    resultText = contentArr[0].text;
+                  }
+                  return {
+                    ...message,
+                    toolStatus: status,
+                    toolResult: resultText,
+                  };
+                }
                 return message;
-              }
-              debug("EVENT", "matched tool message", { blockIndex: message.blockIndex, parsedType: parsed.type });
-              if (parsed.type === "tool_call") {
-                const name = (parsed.name as string) ?? message.toolName;
-                const input = (parsed.input ?? {}) as Record<string, unknown>;
-                debug("EVENT", "tool_call parsed", { name, inputKeys: Object.keys(input), hasContent: typeof input.content === "string", contentLen: typeof input.content === "string" ? input.content.length : 0 });
-                let artifactContent = message.artifactContent;
-                if (name === "create_artifact" && typeof input.content === "string") {
-                  artifactContent = (input.content as string).replace(/\\n/g, "\n");
-                  debug("EVENT", "artifact content extracted", { len: artifactContent.length, first100: artifactContent.slice(0, 100) });
-                }
-                return {
-                  ...message,
-                  toolName: name,
-                  toolInput: JSON.stringify(input),
-                  artifactContent,
-                };
-              }
-              if (parsed.type === "tool_result") {
-                const status = (parsed.status as string) ?? "";
-                let resultText = "";
-                const contentArr = parsed.content as Array<{text?: string}> | undefined;
-                if (contentArr?.[0]?.text) {
-                  resultText = contentArr[0].text;
-                }
-                return {
-                  ...message,
-                  toolStatus: status,
-                  toolResult: resultText,
-                };
-              }
-              return message;
-            }),
-          }));
+              }),
+            };
+          });
         } catch (e) {
           debug("EVENT", "failed to parse buffered JSON", { error: String(e), buffer: buffered.slice(0, 200) });
         }
@@ -196,7 +217,7 @@ export function useDevOpsAgent(config: AppConfig, setConfig: (next: AppConfig) =
       setState((current) => ({
         ...current,
         messages: current.messages.map((message) =>
-          message.blockIndex === event.payload.index && message.streaming
+          message.blockIndex === blockIndex && message.streaming
             ? {
                 ...message,
                 text: (event.payload.text && event.payload.text.length > 0) ? event.payload.text : message.text,

@@ -153,8 +153,12 @@ export function ChatScreen({
       newActive = all.slice(streamingIdx);
     }
 
-    // Only grow committed — Static items can't be removed
-    if (newCommitted.length > committedRef.current.length) {
+    const committedChanged =
+      newCommitted.length !== committedRef.current.length
+      || newCommitted.some((msg, index) => committedRef.current[index] !== msg);
+
+    // Keep committed output in sync when existing messages are updated in place
+    if (committedChanged) {
       committedRef.current = newCommitted;
     }
 
