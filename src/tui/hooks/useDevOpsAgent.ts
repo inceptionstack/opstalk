@@ -24,6 +24,46 @@ function normalizeBlockIndex(index: number | string | undefined): number | undef
   return undefined;
 }
 
+/**
+ * Parse a JSON buffer that may contain two concatenated JSON objects.
+ * The API sends `{tool_call}{tool_result}` in a single buffer for tool_summary blocks.
+ * Returns an array of parsed objects.
+ */
+function parseJsonBuffer(buffer: string): Record<string, unknown>[] {
+  const results: Record<string, unknown>[] = [];
+  try {
+    results.push(JSON.parse(buffer) as Record<string, unknown>);
+    return results;
+  } catch {
+    // Fall through - likely concatenated objects
+  }
+  let depth = 0;
+  let inString = false;
+  let escape = false;
+  let remaining = buffer;
+  for (let i = 0; i < remaining.length; i++) {
+    const ch = remaining[i];
+    if (escape) { escape = false; continue; }
+    if (ch === "\\" && inString) { escape = true; continue; }
+    if (ch === '"' && !escape) { inString = !inString; continue; }
+    if (inString) continue;
+    if (ch === "{") depth++;
+    if (ch === "}") {
+      depth--;
+      if (depth === 0) {
+        const slice = remaining.slice(0, i + 1);
+        try { results.push(JSON.parse(slice) as Record<string, unknown>); } catch { /* skip */ }
+        remaining = remaining.slice(i + 1).trimStart();
+        i = -1;
+        depth = 0;
+        inString = false;
+        escape = false;
+      }
+    }
+  }
+  return results;
+}
+
 function parseJournalRecord(record: JournalRecord): ChatMessage | null {
   const text =
     typeof record.content === "string"
@@ -79,7 +119,7 @@ export function useDevOpsAgent(config: AppConfig, setConfig: (next: AppConfig) =
       debug("EVENT", "contentBlockStart", { index: blockIndex, type: event.payload.type, id: event.payload.id });
       // Skip duplicate/metadata blocks
       const blockType = event.payload.type ?? "text";
-      if (blockType === "final_response" || blockType === "chat_title") {
+      if (blockType === "final_response" || blockType === "chat_title" || blockType === "artifact_reference") {
         debug("EVENT", `skipping block type=${blockType}`);
         return;
       }
@@ -161,8 +201,11 @@ export function useDevOpsAgent(config: AppConfig, setConfig: (next: AppConfig) =
       const buffered = jsonBufferRef.current[blockIdx];
       if (buffered) {
         debug("EVENT", "parsing buffered JSON", { index: blockIndex, bufferLen: buffered.length });
-        try {
-          const parsed = JSON.parse(buffered) as Record<string, unknown>;
+        const parsedObjects = parseJsonBuffer(buffered);
+        if (parsedObjects.length === 0) {
+          debug("EVENT", "failed to parse buffered JSON", { bufferLen: buffered.length, buffer: buffered.slice(0, 200) });
+        }
+        for (const parsed of parsedObjects) {
           debug("EVENT", "parsed JSON", { type: parsed.type, name: (parsed as Record<string,unknown>).name, keys: Object.keys(parsed) });
           setState((current) => {
             debug("EVENT", "messages in state", {
@@ -181,9 +224,19 @@ export function useDevOpsAgent(config: AppConfig, setConfig: (next: AppConfig) =
                   const input = (parsed.input ?? {}) as Record<string, unknown>;
                   debug("EVENT", "tool_call parsed", { name, inputKeys: Object.keys(input), hasContent: typeof input.content === "string", contentLen: typeof input.content === "string" ? input.content.length : 0 });
                   let artifactContent = message.artifactContent;
+                  // Check create_artifact tool_call
                   if (name === "create_artifact" && typeof input.content === "string") {
                     artifactContent = (input.content as string).replace(/\\n/g, "\n");
-                    debug("EVENT", "artifact content extracted", { len: artifactContent.length, first100: artifactContent.slice(0, 100) });
+                    debug("EVENT", "artifact content extracted (create_artifact)", { len: artifactContent.length, first100: artifactContent.slice(0, 100) });
+                  }
+                  // Also check nested artifact content in generate_artifact or similar
+                  const artifact = input.artifact as Record<string, unknown> | undefined;
+                  if (!artifactContent && artifact) {
+                    const elements = artifact.elements as Array<{type?: string; content?: string}> | undefined;
+                    if (elements?.[0]?.content) {
+                      artifactContent = elements[0].content.replace(/\\n/g, "\n");
+                      debug("EVENT", "artifact content extracted (nested elements)", { len: artifactContent.length, first100: artifactContent.slice(0, 100) });
+                    }
                   }
                   return {
                     ...message,
@@ -209,8 +262,6 @@ export function useDevOpsAgent(config: AppConfig, setConfig: (next: AppConfig) =
               }),
             };
           });
-        } catch (e) {
-          debug("EVENT", "failed to parse buffered JSON", { error: String(e), buffer: buffered.slice(0, 200) });
         }
         delete jsonBufferRef.current[blockIdx];
       }
