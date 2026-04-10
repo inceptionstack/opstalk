@@ -1,7 +1,7 @@
 # OpsTalk
 
-Interactive terminal chat CLI for OpenClaw — built with Ink (React for CLIs).
+Interactive terminal chat CLI for AWS DevOps Agent — built with Ink and React.
 
 ## Status
 
-Design phase.
+Phase 1 implementation in progress.

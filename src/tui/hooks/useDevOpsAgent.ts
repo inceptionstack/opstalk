@@ -1,0 +1,353 @@
+import { useCallback, useEffect, useMemo, useState } from "react";
+
+import { DevOpsAgentClient } from "../../agent/client.js";
+import type { AgentSpace, ChatExecution, JournalRecord, SendMessageEvent } from "../../agent/types.js";
+import { saveConfig } from "../../config/storage.js";
+import type { AppConfig, ChatMessage, ChatState } from "../lib/types.js";
+
+function makeMessage(partial: Partial<ChatMessage> & Pick<ChatMessage, "id" | "role" | "kind" | "text">): ChatMessage {
+  return {
+    createdAt: new Date().toISOString(),
+    ...partial,
+  };
+}
+
+function parseJournalRecord(record: JournalRecord): ChatMessage | null {
+  const text =
+    typeof record.content === "string"
+      ? record.content
+      : record.content && typeof record.content === "object"
+        ? JSON.stringify(record.content, null, 2)
+        : String(record.content);
+
+  const normalizedType = record.recordType.toLowerCase();
+  const role =
+    normalizedType.includes("user")
+      ? "user"
+      : normalizedType.includes("error")
+        ? "error"
+        : normalizedType.includes("assistant")
+          ? "assistant"
+          : "system";
+
+  if (!text || text === "undefined") {
+    return null;
+  }
+
+  return {
+    id: record.recordId,
+    role,
+    kind: "text",
+    text,
+    createdAt: record.createdAt,
+  };
+}
+
+export function useDevOpsAgent(config: AppConfig, setConfig: (next: AppConfig) => void) {
+  const client = useMemo(() => new DevOpsAgentClient({ region: config.region }), [config.region]);
+  const [state, setState] = useState<ChatState>({
+    messages: [],
+    chats: [],
+    streaming: false,
+    status: "idle",
+  });
+
+  const appendMessage = useCallback((message: ChatMessage) => {
+    setState((current) => ({
+      ...current,
+      messages: [...current.messages, message],
+    }));
+  }, []);
+
+  const updateStreamingBlock = useCallback((event: SendMessageEvent) => {
+    if (event.type === "contentBlockStart") {
+      setState((current) => ({
+        ...current,
+        messages: [
+          ...current.messages,
+          makeMessage({
+            id: event.payload.id ?? `assistant-${event.payload.index ?? current.messages.length}`,
+            role: "assistant",
+            kind: event.payload.type === "json" ? "json" : "text",
+            text: "",
+            streaming: true,
+            blockId: event.payload.id,
+            blockIndex: event.payload.index,
+          }),
+        ],
+      }));
+      return;
+    }
+
+    if (event.type === "contentBlockDelta") {
+      const deltaText =
+        event.payload.delta?.textDelta?.text ??
+        event.payload.delta?.jsonDelta?.partialJson ??
+        "";
+
+      if (!deltaText) {
+        return;
+      }
+
+      setState((current) => ({
+        ...current,
+        messages: current.messages.map((message) =>
+          message.blockIndex === event.payload.index && message.streaming
+            ? { ...message, text: `${message.text}${deltaText}` }
+            : message,
+        ),
+      }));
+      return;
+    }
+
+    if (event.type === "contentBlockStop") {
+      setState((current) => ({
+        ...current,
+        messages: current.messages.map((message) =>
+          message.blockIndex === event.payload.index && message.streaming
+            ? {
+                ...message,
+                text: event.payload.text ?? message.text,
+                streaming: false,
+              }
+            : message,
+        ),
+      }));
+    }
+  }, []);
+
+  const loadChats = useCallback(async (): Promise<ChatExecution[]> => {
+    if (!config.agentSpaceId) {
+      return [];
+    }
+
+    const response = await client.listChats({
+      agentSpaceId: config.agentSpaceId,
+      userId: config.userId,
+      maxResults: 20,
+    });
+
+    setState((current) => ({
+      ...current,
+      chats: response.executions,
+    }));
+
+    return response.executions;
+  }, [client, config.agentSpaceId, config.userId]);
+
+  const loadHistory = useCallback(
+    async (agentSpaceId: string, executionId: string) => {
+      const response = await client.listJournalRecords({
+        agentSpaceId,
+        executionId,
+        limit: 100,
+      });
+
+      const messages = response.records
+        .map(parseJournalRecord)
+        .filter((value): value is ChatMessage => value !== null);
+
+      setState((current) => ({
+        ...current,
+        executionId,
+        messages,
+      }));
+    },
+    [client],
+  );
+
+  const createNewChat = useCallback(async () => {
+    if (!config.agentSpaceId) {
+      return;
+    }
+
+    setState((current) => ({
+      ...current,
+      status: "creating chat",
+      error: undefined,
+    }));
+
+    const response = await client.createChat({
+      agentSpaceId: config.agentSpaceId,
+      userId: config.userId,
+      userType: config.userType,
+    });
+
+    setState((current) => ({
+      ...current,
+      executionId: response.executionId,
+      messages: [],
+      status: "ready",
+    }));
+  }, [client, config.agentSpaceId, config.userId, config.userType]);
+
+  const resumeChat = useCallback(
+    async (executionId: string) => {
+      if (!config.agentSpaceId) {
+        return;
+      }
+
+      setState((current) => ({
+        ...current,
+        status: "loading history",
+      }));
+
+      await loadHistory(config.agentSpaceId, executionId);
+
+      setState((current) => ({
+        ...current,
+        status: "ready",
+      }));
+    },
+    [config.agentSpaceId, loadHistory],
+  );
+
+  const sendMessage = useCallback(
+    async (content: string) => {
+      if (!config.agentSpaceId) {
+        throw new Error("No agent space selected");
+      }
+
+      let executionId = state.executionId;
+
+      if (!executionId) {
+        const created = await client.createChat({
+          agentSpaceId: config.agentSpaceId,
+          userId: config.userId,
+          userType: config.userType,
+        });
+        executionId = created.executionId;
+        setState((current) => ({
+          ...current,
+          executionId,
+        }));
+      }
+
+      appendMessage(
+        makeMessage({
+          id: `user-${Date.now()}`,
+          role: "user",
+          kind: "text",
+          text: content,
+        }),
+      );
+
+      setState((current) => ({
+        ...current,
+        streaming: true,
+        status: "streaming",
+        error: undefined,
+      }));
+
+      for await (const event of client.sendMessage({
+        agentSpaceId: config.agentSpaceId,
+        executionId,
+        content,
+        userId: config.userId,
+      })) {
+        updateStreamingBlock(event);
+
+        if (event.type === "responseFailed") {
+          appendMessage(
+            makeMessage({
+              id: `error-${Date.now()}`,
+              role: "error",
+              kind: "status",
+              text: event.payload.errorMessage ?? event.payload.errorCode ?? "Request failed",
+            }),
+          );
+        }
+
+        if (event.type === "responseCompleted") {
+          setState((current) => ({
+            ...current,
+            messages: current.messages.map((message) =>
+              message.streaming ? { ...message, streaming: false, usage: event.payload.usage } : message,
+            ),
+          }));
+        }
+      }
+
+      setState((current) => ({
+        ...current,
+        streaming: false,
+        status: "ready",
+      }));
+
+      void loadChats();
+    },
+    [
+      appendMessage,
+      client,
+      config.agentSpaceId,
+      config.userId,
+      config.userType,
+      loadChats,
+      state.executionId,
+      updateStreamingBlock,
+    ],
+  );
+
+  const selectAgentSpace = useCallback(
+    async (space: AgentSpace) => {
+      const nextConfig: AppConfig = {
+        ...config,
+        agentSpaceId: space.agentSpaceId,
+      };
+
+      setConfig(nextConfig);
+      await saveConfig(nextConfig);
+      const created = await client.createChat({
+        agentSpaceId: space.agentSpaceId,
+        userId: nextConfig.userId,
+        userType: nextConfig.userType,
+      });
+
+      setState((current) => ({
+        ...current,
+        agentSpace: space,
+        executionId: created.executionId,
+        messages: [],
+        status: "ready",
+      }));
+    },
+    [client, config, setConfig],
+  );
+
+  const clearMessages = useCallback(() => {
+    setState((current) => ({
+      ...current,
+      messages: [],
+    }));
+  }, []);
+
+  const appendSystemMessage = useCallback((text: string) => {
+    appendMessage(
+      makeMessage({
+        id: `system-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+        role: "system",
+        kind: "status",
+        text,
+      }),
+    );
+  }, [appendMessage]);
+
+  useEffect(() => {
+    setState((current) => ({
+      ...current,
+      agentSpace: config.agentSpaceId ? { agentSpaceId: config.agentSpaceId } : undefined,
+    }));
+  }, [config.agentSpaceId]);
+
+  return {
+    state,
+    sendMessage,
+    createNewChat,
+    loadChats,
+    resumeChat,
+    selectAgentSpace,
+    clearMessages,
+    appendSystemMessage,
+    client,
+  };
+}

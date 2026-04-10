@@ -1,3 +1,4 @@
 node_modules/
 dist/
 .env
+devops-agent-service-model.json
