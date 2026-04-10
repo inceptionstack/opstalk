@@ -1,7 +1,9 @@
-import React, { useEffect, useState } from "react";
-import { Box, Text, useApp, useInput } from "ink";
+import React, { useEffect, useMemo, useState } from "react";
+import { Box, Text, useApp, useInput, useStdout } from "ink";
 
 import type { ChatCommandResult } from "../lib/types.js";
+import { renderRows } from "../lib/renderRows.js";
+import { safeWidth } from "../lib/width.js";
 import { HELP_TEXT } from "../hooks/useKeymap.js";
 import { useComposer } from "../hooks/useComposer.js";
 import { ChatComposer } from "../components/ChatComposer.js";
@@ -52,9 +54,30 @@ export function ChatScreen({
 }): React.ReactElement {
   const { exit } = useApp();
   const { config } = useConfig();
+  const { stdout } = useStdout();
   const [chatPickerOpen, setChatPickerOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
   const [selectedChatIndex, setSelectedChatIndex] = useState(0);
+  const [scrollOffset, setScrollOffset] = useState<number | undefined>(undefined);
+
+  // Compute available height for the message viewport.
+  // Reserve rows for: header(3) + composer(3) + statusbar(2) + spinner(1) + margins(3) = ~12
+  const termRows = stdout?.rows ?? 24;
+  const reservedRows = 12;
+  const viewportHeight = Math.max(6, termRows - reservedRows);
+
+  // Compute total rows for auto-scroll
+  const termWidth = safeWidth(stdout?.columns, 80) - 4;
+  const totalRows = useMemo(
+    () => renderRows(agent.state.messages, termWidth).length,
+    [agent.state.messages, termWidth],
+  );
+
+  // Auto-scroll to bottom when new messages arrive or during streaming
+  useEffect(() => {
+    setScrollOffset(undefined); // undefined = stick to bottom
+  }, [totalRows]);
+
   const composer = useComposer({
     disabled: agent.state.streaming,
     onSubmit: async (value) => {
@@ -80,31 +103,51 @@ export function ChatScreen({
   });
 
   useInput(async (_input, key) => {
-    if (!chatPickerOpen) {
-      return;
-    }
-
-    if (key.escape) {
-      setChatPickerOpen(false);
-      return;
-    }
-
-    if (key.upArrow) {
-      setSelectedChatIndex((current) => Math.max(0, current - 1));
-      return;
-    }
-
-    if (key.downArrow) {
-      setSelectedChatIndex((current) => Math.min(Math.max(0, agent.state.chats.length - 1), current + 1));
-      return;
-    }
-
-    if (key.return) {
-      const chat = agent.state.chats[selectedChatIndex];
-      if (chat) {
-        await agent.resumeChat(chat.executionId);
+    if (chatPickerOpen) {
+      if (key.escape) {
         setChatPickerOpen(false);
+        return;
       }
+
+      if (key.upArrow) {
+        setSelectedChatIndex((current) => Math.max(0, current - 1));
+        return;
+      }
+
+      if (key.downArrow) {
+        setSelectedChatIndex((current) =>
+          Math.min(Math.max(0, agent.state.chats.length - 1), current + 1),
+        );
+        return;
+      }
+
+      if (key.return) {
+        const chat = agent.state.chats[selectedChatIndex];
+        if (chat) {
+          await agent.resumeChat(chat.executionId);
+          setChatPickerOpen(false);
+        }
+      }
+      return;
+    }
+
+    // Scroll the message viewport with PageUp / PageDown
+    if (key.pageUp) {
+      setScrollOffset((current) => {
+        const maxOffset = Math.max(0, totalRows - viewportHeight);
+        const cur = current ?? maxOffset;
+        return Math.max(0, cur - viewportHeight);
+      });
+      return;
+    }
+
+    if (key.pageDown) {
+      setScrollOffset((current) => {
+        if (current === undefined) return undefined;
+        const maxOffset = Math.max(0, totalRows - viewportHeight);
+        const next = current + viewportHeight;
+        return next >= maxOffset ? undefined : next;
+      });
     }
   });
 
@@ -122,8 +165,13 @@ export function ChatScreen({
         executionId={agent.state.executionId}
         status={agent.state.status}
       />
-      <Box flexDirection="column" marginTop={1}>
-        <MessageViewport messages={agent.state.messages} title="Conversation" />
+      <Box flexDirection="column" flexGrow={1}>
+        <MessageViewport
+          messages={agent.state.messages}
+          title="Conversation"
+          height={viewportHeight}
+          offset={scrollOffset}
+        />
       </Box>
       {chatPickerOpen ? (
         <Box marginTop={1}>
@@ -150,18 +198,16 @@ export function ChatScreen({
           </Panel>
         </Box>
       ) : null}
-      <Box marginTop={1} flexDirection="column">
+      <Box flexDirection="column">
         {agent.state.streaming ? <Spinner label="Streaming response" /> : null}
         <ChatComposer value={composer.value} cursor={composer.cursor} disabled={agent.state.streaming} />
       </Box>
-      <Box marginTop={1}>
-        <StatusBar
-          region={config.region}
-          agentSpaceId={config.agentSpaceId}
-          executionId={agent.state.executionId}
-          status={agent.state.status}
-        />
-      </Box>
+      <StatusBar
+        region={config.region}
+        agentSpaceId={config.agentSpaceId}
+        executionId={agent.state.executionId}
+        status={agent.state.status}
+      />
     </Screen>
   );
 }
