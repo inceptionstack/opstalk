@@ -64,12 +64,13 @@ export function useDevOpsAgent(config: AppConfig, setConfig: (next: AppConfig) =
   const updateStreamingBlock = useCallback((event: SendMessageEvent) => {
     if (event.type === "contentBlockStart") {
       debug("EVENT", "contentBlockStart", { index: event.payload.index, type: event.payload.type, id: event.payload.id });
-      // Skip duplicate/metadata blocks — only render "text" type blocks
+      // Skip duplicate/metadata blocks
       const blockType = event.payload.type ?? "text";
       if (blockType === "final_response" || blockType === "chat_title") {
         debug("EVENT", `skipping block type=${blockType}`);
         return;
       }
+      const kind = (blockType === "tool_summary" || blockType === "load_skill") ? "tool" : blockType === "json" ? "json" : "text";
       setState((current) => ({
         ...current,
         messages: [
@@ -77,11 +78,15 @@ export function useDevOpsAgent(config: AppConfig, setConfig: (next: AppConfig) =
           makeMessage({
             id: event.payload.id ?? `assistant-${event.payload.index ?? current.messages.length}`,
             role: "assistant",
-            kind: blockType === "json" ? "json" : "text",
+            kind,
             text: "",
             streaming: true,
             blockId: event.payload.id,
             blockIndex: event.payload.index,
+            toolName: "",
+            toolInput: "",
+            toolStatus: "",
+            toolResult: "",
           }),
         ],
       }));
@@ -90,22 +95,54 @@ export function useDevOpsAgent(config: AppConfig, setConfig: (next: AppConfig) =
 
     if (event.type === "contentBlockDelta") {
       debug("EVENT", "contentBlockDelta", { index: event.payload.index, deltaLen: (event.payload.delta?.textDelta?.text ?? "").length });
-      const deltaText =
-        event.payload.delta?.textDelta?.text ??
-        event.payload.delta?.jsonDelta?.partialJson ??
-        "";
+      const textDelta = event.payload.delta?.textDelta?.text ?? "";
+      const jsonDelta = event.payload.delta?.jsonDelta?.partialJson ?? "";
 
-      if (!deltaText) {
+      if (!textDelta && !jsonDelta) {
         return;
       }
 
       setState((current) => ({
         ...current,
-        messages: current.messages.map((message) =>
-          message.blockIndex === event.payload.index && message.streaming
-            ? { ...message, text: `${message.text}${deltaText}` }
-            : message,
-        ),
+        messages: current.messages.map((message) => {
+          if (message.blockIndex !== event.payload.index || !message.streaming) {
+            return message;
+          }
+          // For tool messages, parse jsonDelta to extract tool info
+          if (message.kind === "tool" && jsonDelta) {
+            try {
+              const parsed = JSON.parse(jsonDelta) as Record<string, unknown>;
+              if (parsed.type === "tool_call") {
+                return {
+                  ...message,
+                  toolName: (parsed.name as string) ?? message.toolName,
+                  toolInput: JSON.stringify(parsed.input ?? {}),
+                };
+              }
+              if (parsed.type === "tool_result") {
+                const status = (parsed.status as string) ?? "";
+                let resultText = "";
+                const contentArr = parsed.content as Array<{text?: string}> | undefined;
+                if (contentArr?.[0]?.text) {
+                  resultText = contentArr[0].text;
+                }
+                return {
+                  ...message,
+                  toolStatus: status,
+                  toolResult: resultText,
+                };
+              }
+            } catch {
+              // Ignore parse errors on partial JSON
+            }
+            return message;
+          }
+          // For regular text messages, only use textDelta
+          if (textDelta) {
+            return { ...message, text: `${message.text}${textDelta}` };
+          }
+          return message;
+        }),
       }));
       return;
     }

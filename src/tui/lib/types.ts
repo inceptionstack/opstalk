@@ -11,7 +11,7 @@ export interface AppConfig {
 }
 
 export type Role = "user" | "assistant" | "system" | "error";
-export type MessageKind = "text" | "json" | "status";
+export type MessageKind = "text" | "json" | "status" | "tool";
 
 export interface ChatMessage {
   id: string;
@@ -23,6 +23,10 @@ export interface ChatMessage {
   blockId?: string;
   blockIndex?: number;
   usage?: UsageInfo;
+  toolName?: string;
+  toolInput?: string;
+  toolStatus?: string;
+  toolResult?: string;
 }
 
 export interface ChatState {
