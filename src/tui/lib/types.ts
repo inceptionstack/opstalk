@@ -27,6 +27,7 @@ export interface ChatMessage {
   toolInput?: string;
   toolStatus?: string;
   toolResult?: string;
+  artifactContent?: string;
 }
 
 export interface ChatState {

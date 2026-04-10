@@ -113,10 +113,19 @@ export function useDevOpsAgent(config: AppConfig, setConfig: (next: AppConfig) =
             try {
               const parsed = JSON.parse(jsonDelta) as Record<string, unknown>;
               if (parsed.type === "tool_call") {
+                const name = (parsed.name as string) ?? message.toolName;
+                const input = (parsed.input ?? {}) as Record<string, unknown>;
+                // For create_artifact, extract the content for display
+                let artifactContent = message.artifactContent;
+                if (name === "create_artifact" && typeof input.content === "string") {
+                  // Unescape \n to actual newlines
+                  artifactContent = (input.content as string).replace(/\\n/g, "\n");
+                }
                 return {
                   ...message,
-                  toolName: (parsed.name as string) ?? message.toolName,
-                  toolInput: JSON.stringify(parsed.input ?? {}),
+                  toolName: name,
+                  toolInput: JSON.stringify(input),
+                  artifactContent,
                 };
               }
               if (parsed.type === "tool_result") {

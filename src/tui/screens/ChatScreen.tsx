@@ -20,9 +20,18 @@ function formatToolLine(msg: ChatMessage): string {
     if (msg.toolInput) {
       try {
         const input = JSON.parse(msg.toolInput) as Record<string, unknown>;
-        inputSummary = Object.entries(input)
-          .map(([k, v]) => `${k}=${JSON.stringify(v)}`)
-          .join(", ");
+        // For create_artifact, just show the type (content is displayed separately)
+        if (msg.toolName === "create_artifact" && input.artifact_type) {
+          inputSummary = String(input.artifact_type);
+        } else {
+          inputSummary = Object.entries(input)
+            .filter(([k]) => k !== "content") // skip large content fields
+            .map(([k, v]) => {
+              const val = JSON.stringify(v);
+              return val.length > 50 ? `${k}=...` : `${k}=${val}`;
+            })
+            .join(", ");
+        }
       } catch {
         inputSummary = msg.toolInput;
       }
@@ -65,11 +74,28 @@ function RenderedMessage({ msg, width }: { msg: ChatMessage; width: number }): R
   if (msg.kind === "tool") {
     const raw = formatToolLine(msg);
     const lines = wrapText(raw, Math.max(10, width));
+    // If there's artifact content (e.g. from create_artifact), show it
+    const artifactLines: string[] = [];
+    if (msg.artifactContent) {
+      const artLines = msg.artifactContent.split("\n");
+      for (const al of artLines) {
+        // Don't word-wrap artifact lines — they may be ASCII art / diagrams
+        artifactLines.push(al);
+      }
+    }
     return (
       <Box flexDirection="column">
         {lines.map((line, i) => (
-          <Text key={i} dimColor>{line}</Text>
+          <Text key={`t-${i}`} dimColor>{line}</Text>
         ))}
+        {artifactLines.length > 0 ? (
+          <>
+            <Text>{""}</Text>
+            {artifactLines.map((line, i) => (
+              <Text key={`a-${i}`} color="green">{line}</Text>
+            ))}
+          </>
+        ) : null}
       </Box>
     );
   }
