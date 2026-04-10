@@ -1,10 +1,20 @@
 import { debug } from "../../debug.js";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { DevOpsAgentClient } from "../../agent/client.js";
 import type { AgentSpace, ChatExecution, JournalRecord, SendMessageEvent } from "../../agent/types.js";
 import { saveConfig } from "../../config/storage.js";
 import type { AppConfig, ChatMessage, ChatState } from "../lib/types.js";
+import {
+  createAssistantFormatState,
+  finishAssistantFormatting,
+  formatErrorMessage,
+  formatSystemMessage,
+  formatToolMessage,
+  formatUserMessage,
+  writeAssistantDelta,
+  writeLine,
+} from "../lib/consoleOutput.js";
 
 function makeMessage(partial: Partial<ChatMessage> & Pick<ChatMessage, "id" | "role" | "kind" | "text">): ChatMessage {
   return {
@@ -44,6 +54,83 @@ function parseJournalRecord(record: JournalRecord): ChatMessage | null {
   };
 }
 
+interface ToolOutputState {
+  jsonBuffer: string;
+  textBuffer: string;
+  toolName: string;
+  toolInput: string;
+  toolStatus: string;
+  toolResult: string;
+}
+
+function cleanTextDelta(text: string): string {
+  let cleaned = text;
+  cleaned = cleaned.replace(/\{"type":\s*"text"[^}]*\}/g, "");
+  cleaned = cleaned.replace(/\{"content":\s*"/g, "");
+  cleaned = cleaned.replace(/\\n/g, "\n");
+  return cleaned;
+}
+
+function stringifyToolValue(value: unknown): string {
+  if (value === undefined) {
+    return "";
+  }
+
+  if (typeof value === "string") {
+    return value;
+  }
+
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+}
+
+function syncToolStateFromJson(toolState: ToolOutputState): void {
+  try {
+    const parsed = JSON.parse(toolState.jsonBuffer) as Record<string, unknown>;
+    if (parsed.type === "tool_call") {
+      toolState.toolName = typeof parsed.name === "string" ? parsed.name : toolState.toolName;
+      toolState.toolInput = stringifyToolValue(parsed.input ?? {});
+    }
+    if (parsed.type === "tool_result") {
+      toolState.toolStatus = typeof parsed.status === "string" ? parsed.status : toolState.toolStatus;
+      const content = parsed.content;
+      if (Array.isArray(content)) {
+        const first = content[0];
+        if (first && typeof first === "object" && "text" in first && typeof first.text === "string") {
+          toolState.toolResult = first.text;
+        }
+      }
+    }
+  } catch {
+    // Ignore partial JSON until the content block is complete.
+  }
+}
+
+function printMessage(message: ChatMessage): void {
+  if (message.role === "user") {
+    writeLine(formatUserMessage(message.text));
+    return;
+  }
+
+  if (message.role === "assistant") {
+    const formatter = createAssistantFormatState();
+    writeAssistantDelta(message.text, formatter);
+    finishAssistantFormatting(formatter);
+    writeLine();
+    return;
+  }
+
+  if (message.role === "error") {
+    writeLine(formatErrorMessage(message.text));
+    return;
+  }
+
+  writeLine(formatSystemMessage(message.text));
+}
+
 export function useDevOpsAgent(config: AppConfig, setConfig: (next: AppConfig) => void) {
   const client = useMemo(() => new DevOpsAgentClient({ region: config.region }), [config.region]);
   const [state, setState] = useState<ChatState>({
@@ -52,9 +139,15 @@ export function useDevOpsAgent(config: AppConfig, setConfig: (next: AppConfig) =
     streaming: false,
     status: "idle",
   });
+  const assistantFormatsRef = useRef(new Map<number, ReturnType<typeof createAssistantFormatState>>());
+  const toolOutputRef = useRef(new Map<number, ToolOutputState>());
+  const nextBlockIndexRef = useRef(0);
 
   const appendMessage = useCallback((message: ChatMessage) => {
     debug("STATE", `appendMessage role=${message.role} kind=${message.kind} id=${message.id}`, { textLen: message.text.length, streaming: message.streaming });
+    if (!message.streaming && message.text) {
+      printMessage(message);
+    }
     setState((current) => ({
       ...current,
       messages: [...current.messages, message],
@@ -71,18 +164,31 @@ export function useDevOpsAgent(config: AppConfig, setConfig: (next: AppConfig) =
         return;
       }
       const kind = (blockType === "tool_summary" || blockType === "load_skill") ? "tool" : blockType === "json" ? "json" : "text";
+      const blockIndex = event.payload.index ?? nextBlockIndexRef.current++;
+      if (kind === "tool") {
+        toolOutputRef.current.set(blockIndex, {
+          jsonBuffer: "",
+          textBuffer: "",
+          toolName: "tool",
+          toolInput: "{}",
+          toolStatus: "",
+          toolResult: "",
+        });
+      } else {
+        assistantFormatsRef.current.set(blockIndex, createAssistantFormatState());
+      }
       setState((current) => ({
         ...current,
         messages: [
           ...current.messages,
           makeMessage({
-            id: event.payload.id ?? `assistant-${event.payload.index ?? current.messages.length}`,
+            id: event.payload.id ?? `assistant-${blockIndex}`,
             role: "assistant",
             kind,
             text: "",
             streaming: true,
             blockId: event.payload.id,
-            blockIndex: event.payload.index,
+            blockIndex,
             toolName: "",
             toolInput: "",
             toolStatus: "",
@@ -95,64 +201,52 @@ export function useDevOpsAgent(config: AppConfig, setConfig: (next: AppConfig) =
 
     if (event.type === "contentBlockDelta") {
       debug("EVENT", "contentBlockDelta", { index: event.payload.index, deltaLen: (event.payload.delta?.textDelta?.text ?? "").length });
-      const textDelta = event.payload.delta?.textDelta?.text ?? "";
+      const textDelta = cleanTextDelta(event.payload.delta?.textDelta?.text ?? "");
       const jsonDelta = event.payload.delta?.jsonDelta?.partialJson ?? "";
+      const blockIndex = event.payload.index ?? -1;
 
       if (!textDelta && !jsonDelta) {
         return;
       }
 
+      const currentTool = toolOutputRef.current.get(blockIndex);
+      if (currentTool) {
+        if (jsonDelta) {
+          currentTool.jsonBuffer += jsonDelta;
+          syncToolStateFromJson(currentTool);
+        }
+        if (textDelta && textDelta !== "Done") {
+          currentTool.textBuffer += textDelta;
+        }
+      } else if (textDelta) {
+        const formatter = assistantFormatsRef.current.get(blockIndex) ?? createAssistantFormatState();
+        assistantFormatsRef.current.set(blockIndex, formatter);
+        writeAssistantDelta(textDelta, formatter);
+      }
+
       setState((current) => ({
         ...current,
         messages: current.messages.map((message) => {
-          if (message.blockIndex !== event.payload.index || !message.streaming) {
+          if (message.blockIndex !== blockIndex || !message.streaming) {
             return message;
           }
-          // For tool messages, parse jsonDelta to extract tool info
-          if (message.kind === "tool" && jsonDelta) {
-            try {
-              const parsed = JSON.parse(jsonDelta) as Record<string, unknown>;
-              if (parsed.type === "tool_call") {
-                return {
-                  ...message,
-                  toolName: (parsed.name as string) ?? message.toolName,
-                  toolInput: JSON.stringify(parsed.input ?? {}),
-                };
-              }
-              if (parsed.type === "tool_result") {
-                const status = (parsed.status as string) ?? "";
-                let resultText = "";
-                const contentArr = parsed.content as Array<{text?: string}> | undefined;
-                if (contentArr?.[0]?.text) {
-                  resultText = contentArr[0].text;
-                }
-                return {
-                  ...message,
-                  toolStatus: status,
-                  toolResult: resultText,
-                };
-              }
-            } catch {
-              // Ignore parse errors on partial JSON
+          if (message.kind === "tool") {
+            const toolState = toolOutputRef.current.get(blockIndex);
+            if (!toolState) {
+              return message;
             }
-            return message;
+
+            return {
+              ...message,
+              text: toolState.textBuffer,
+              toolName: toolState.toolName,
+              toolInput: toolState.toolInput,
+              toolStatus: toolState.toolStatus,
+              toolResult: toolState.toolResult,
+            };
           }
-          // For tool messages, skip "Done" text
-          if (message.kind === "tool" && textDelta) {
-            const cleanText = textDelta === "Done" ? "" : textDelta;
-            return cleanText ? { ...message, text: `${message.text}${cleanText}` } : message;
-          }
-          // For regular text messages, only use textDelta
           if (textDelta) {
-            // Clean up: strip JSON metadata fragments that leak through,
-            // and convert literal \n to actual newlines
-            let cleanedDelta = textDelta;
-            // Remove JSON content block wrappers like {"type":"text","version":1},{"content":"..."}
-            cleanedDelta = cleanedDelta.replace(/\{"type":\s*"text"[^}]*\}/g, "");
-            cleanedDelta = cleanedDelta.replace(/\{"content":\s*"/g, "");
-            // Convert literal \n to actual newlines
-            cleanedDelta = cleanedDelta.replace(/\\n/g, "\n");
-            return { ...message, text: `${message.text}${cleanedDelta}` };
+            return { ...message, text: `${message.text}${textDelta}` };
           }
           return message;
         }),
@@ -162,10 +256,26 @@ export function useDevOpsAgent(config: AppConfig, setConfig: (next: AppConfig) =
 
     if (event.type === "contentBlockStop") {
       debug("EVENT", "contentBlockStop", { index: event.payload.index, textLen: (event.payload.text ?? "").length });
+      const blockIndex = event.payload.index ?? -1;
+      const toolState = toolOutputRef.current.get(blockIndex);
+      if (toolState) {
+        const toolName = toolState.toolName || "tool";
+        const argsText = toolState.toolInput || "{}";
+        writeLine(formatToolMessage(toolName, argsText, toolState.toolStatus !== "failed"));
+        toolOutputRef.current.delete(blockIndex);
+      } else {
+        const formatter = assistantFormatsRef.current.get(blockIndex);
+        if (formatter) {
+          finishAssistantFormatting(formatter);
+          assistantFormatsRef.current.delete(blockIndex);
+        }
+        writeLine();
+      }
+
       setState((current) => ({
         ...current,
         messages: current.messages.map((message) =>
-          message.blockIndex === event.payload.index && message.streaming
+          message.blockIndex === blockIndex && message.streaming
             ? {
                 ...message,
                 text: (event.payload.text && event.payload.text.length > 0) ? event.payload.text : message.text,
@@ -208,6 +318,14 @@ export function useDevOpsAgent(config: AppConfig, setConfig: (next: AppConfig) =
         .map(parseJournalRecord)
         .filter((value): value is ChatMessage => value !== null);
 
+      writeLine(formatSystemMessage(`Resumed chat ${executionId}`));
+      for (const message of messages) {
+        printMessage(message);
+      }
+      if (messages.length > 0) {
+        writeLine();
+      }
+
       setState((current) => ({
         ...current,
         executionId,
@@ -240,6 +358,8 @@ export function useDevOpsAgent(config: AppConfig, setConfig: (next: AppConfig) =
       messages: [],
       status: "ready",
     }));
+    writeLine(formatSystemMessage(`Started new chat ${response.executionId}`));
+    writeLine();
   }, [client, config.agentSpaceId, config.userId, config.userType]);
 
   const resumeChat = useCallback(
@@ -323,6 +443,7 @@ export function useDevOpsAgent(config: AppConfig, setConfig: (next: AppConfig) =
 
         if (event.type === "responseCompleted") {
           debug("STREAM", "responseCompleted — finalizing messages", event.payload);
+          writeLine();
           setState((current) => ({
             ...current,
             messages: current.messages.map((message) =>
@@ -334,12 +455,12 @@ export function useDevOpsAgent(config: AppConfig, setConfig: (next: AppConfig) =
 
       debug("SEND", "streaming done, setting status=ready");
       setState((current) => {
-        debug("STATE", `final state: ${current.messages.length} messages`, current.messages.map(m => ({ id: m.id, role: m.role, textLen: m.text.length, streaming: m.streaming })));
+        debug("STATE", `final state: ${current.messages.length} messages`, current.messages.map((message) => ({ id: message.id, role: message.role, textLen: message.text.length, streaming: message.streaming })));
         return {
-        ...current,
-        streaming: false,
-        status: "ready",
-      };
+          ...current,
+          streaming: false,
+          status: "ready",
+        };
       });
 
       void loadChats();
@@ -378,6 +499,9 @@ export function useDevOpsAgent(config: AppConfig, setConfig: (next: AppConfig) =
         messages: [],
         status: "ready",
       }));
+      writeLine(formatSystemMessage(`Selected space ${space.agentSpaceId}`));
+      writeLine(formatSystemMessage(`Started new chat ${created.executionId}`));
+      writeLine();
     },
     [client, config, setConfig],
   );

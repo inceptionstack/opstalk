@@ -5,6 +5,7 @@ export function ChatComposer(props: {
   value: string;
   cursor: number;
   disabled?: boolean;
+  statusLine?: string;
 }): React.ReactElement {
   const before = props.value.slice(0, props.cursor);
   const current = props.value[props.cursor] ?? " ";
@@ -12,6 +13,7 @@ export function ChatComposer(props: {
 
   return (
     <Box flexDirection="column">
+      {props.statusLine ? <Text dimColor>{props.statusLine}</Text> : null}
       <Text dimColor>Enter to send. Ctrl+J inserts a newline.</Text>
       <Text>
         <Text color="cyan">&gt; </Text>
