@@ -5,7 +5,7 @@ import { Box, Static, Text, useApp, useInput, useStdout } from "ink";
 import type { ChatCommandResult, ChatMessage } from "../lib/types.js";
 import { safeWidth } from "../lib/width.js";
 import { wrapText } from "../lib/wrap.js";
-import { parseMarkdownLine, formatTableRows, type StyledLine } from "../lib/terminalMarkdown.js";
+import { renderMarkdown } from "../lib/markdown.js";
 import { HELP_TEXT } from "../hooks/useKeymap.js";
 import { useComposer } from "../hooks/useComposer.js";
 import { ChatComposer } from "../components/ChatComposer.js";
@@ -50,36 +50,15 @@ function messageColor(msg: ChatMessage): string | undefined {
   return "gray";
 }
 
-function StyledSegments({ line, baseColor }: { line: StyledLine; baseColor: string | undefined }): React.ReactElement {
-  return (
-    <Text color={baseColor}>
-      {line.segments.map((seg, i) => (
-        <Text
-          key={i}
-          bold={seg.bold}
-          italic={seg.italic}
-          dimColor={seg.dim}
-          color={seg.color ?? baseColor}
-        >
-          {seg.text}
-        </Text>
-      ))}
-    </Text>
-  );
-}
-
 function RenderedMessage({ msg, width }: { msg: ChatMessage; width: number }): React.ReactElement {
   const color = messageColor(msg);
 
   if (msg.kind === "tool") {
     const raw = formatToolLine(msg);
     const lines = wrapText(raw, Math.max(10, width));
-    // If there's artifact content (e.g. from create_artifact), show it
     const artifactLines: string[] = [];
     if (msg.artifactContent) {
-      const artLines = msg.artifactContent.split("\n");
-      for (const al of artLines) {
-        // Don't word-wrap artifact lines — they may be ASCII art / diagrams
+      for (const al of msg.artifactContent.split("\n")) {
         artifactLines.push(al);
       }
     }
@@ -102,21 +81,12 @@ function RenderedMessage({ msg, width }: { msg: ChatMessage; width: number }): R
 
   const prefix = msg.role === "user" ? "> " : "";
   const fullText = `${prefix}${msg.text}`;
-  const rawLines = fullText.split("\n");
-  // Format markdown tables (align columns)
-  const textLines = formatTableRows(rawLines);
+  // Use marked + marked-terminal for markdown rendering
+  const rendered = msg.role === "assistant" ? renderMarkdown(fullText) : fullText;
 
   return (
     <Box flexDirection="column">
-      {textLines.flatMap((textLine, li) => {
-        // Don't word-wrap table rows (they have fixed column widths)
-        const isTableRow = textLine.startsWith("│") || textLine.startsWith("├");
-        const lines = isTableRow ? [textLine] : wrapText(textLine, Math.max(10, width));
-        return lines.map((wl, wi) => {
-          const styled = parseMarkdownLine(wl);
-          return <StyledSegments key={`${li}-${wi}`} line={styled} baseColor={color} />;
-        });
-      })}
+      <Text color={color}>{rendered}</Text>
     </Box>
   );
 }

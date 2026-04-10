@@ -69,3 +69,14 @@ declare module "@aws-sdk/credential-providers" {
     sessionToken?: string;
   }>;
 }
+
+declare module "marked" {
+  export const marked: {
+    (text: string): string;
+    use: (...args: unknown[]) => void;
+  };
+}
+
+declare module "marked-terminal" {
+  export function markedTerminal(options?: Record<string, unknown>): unknown;
+}
