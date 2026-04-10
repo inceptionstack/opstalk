@@ -31,6 +31,7 @@ declare module "react" {
     <T = undefined>(): [T | undefined, (value: T | undefined | ((current: T | undefined) => T | undefined)) => void];
   };
   export const useCallback: <T extends (...args: never[]) => unknown>(callback: T, deps: unknown[]) => T;
+  export const useRef: <T>(initial: T) => { current: T };
 }
 
 declare module "react/jsx-runtime" {
@@ -42,6 +43,7 @@ declare module "react/jsx-runtime" {
 declare module "ink" {
   export const Box: (props: Record<string, unknown>) => React.ReactElement;
   export const Text: (props: Record<string, unknown>) => React.ReactElement;
+  export function Static<T>(props: { items: T[]; children: (item: T, index: number) => React.ReactElement }): React.ReactElement;
   export function render(node: React.ReactElement): { unmount: () => void };
   export function useInput(handler: (input: string, key: Record<string, boolean>) => void | Promise<void>): void;
   export function useStdout(): { stdout?: { columns?: number; rows?: number } };
