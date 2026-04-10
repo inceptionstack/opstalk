@@ -1,16 +1,10 @@
-import React from "react";
-import { Box, useApp } from "ink";
-
-import { ChatComposer } from "../components/ChatComposer.js";
-import type { DevOpsAgentContextValue } from "../context/DevOpsAgentContext.js";
-import { useConfig } from "../context/ConfigContext.js";
-import { useComposer } from "../hooks/useComposer.js";
+import type { DevOpsAgentController } from "../../agent/controller.js";
 import { HELP_TEXT } from "../hooks/useKeymap.js";
 import { formatErrorMessage, formatSystemMessage, writeLine } from "../lib/consoleOutput.js";
 
-async function handleSlashCommand(
+export async function handleChatSlashCommand(
   value: string,
-  agent: DevOpsAgentContextValue,
+  agent: DevOpsAgentController,
   exit: () => void,
 ): Promise<boolean> {
   const [command, ...args] = value.trim().split(/\s+/);
@@ -70,49 +64,7 @@ async function handleSlashCommand(
       await agent.resumeChat(chat.executionId);
       return true;
     }
-    case "/space":
-      writeLine(formatErrorMessage("Switching spaces from chat mode is not implemented."));
-      return true;
     default:
       return false;
   }
-}
-
-export function ChatScreen({
-  agent,
-}: {
-  agent: DevOpsAgentContextValue;
-}): React.ReactElement {
-  const { exit } = useApp();
-  const { config } = useConfig();
-
-
-
-  const composer = useComposer({
-    disabled: agent.state.streaming,
-    onSubmit: async (value) => {
-      const handled = await handleSlashCommand(value, agent, exit);
-      if (!handled) {
-        await agent.sendMessage(value);
-      }
-    },
-  });
-
-  const statusParts = [
-    config.region,
-    config.agentSpaceId ?? "no-space",
-    agent.state.executionId ?? "new",
-    agent.state.status,
-  ];
-
-  return (
-    <Box flexDirection="column">
-      <ChatComposer
-        value={composer.value}
-        cursor={composer.cursor}
-        disabled={agent.state.streaming}
-        statusLine={statusParts.join(" · ")}
-      />
-    </Box>
-  );
 }
