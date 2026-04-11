@@ -13,7 +13,7 @@ import { Spinner } from "../components/Spinner.js";
 import { Panel } from "../components/Panel.js";
 import type { DevOpsAgentContextValue } from "../context/DevOpsAgentContext.js";
 import { useConfig } from "../context/ConfigContext.js";
-import { getRandomPlaceholder } from "../lib/placeholders.js";
+import { getRandomPlaceholder, IDEA_PROMPTS } from "../lib/placeholders.js";
 
 const INITIAL_PLACEHOLDER = getRandomPlaceholder();
 
@@ -110,6 +110,7 @@ async function handleSlashCommand(
   exit: () => void,
   showChats: () => void,
   showHelp: () => void,
+  showIdeas: () => void,
 ): Promise<ChatCommandResult> {
   const [command] = value.trim().split(/\s+/);
   switch (command) {
@@ -129,6 +130,9 @@ async function handleSlashCommand(
     case "/chats":
       showChats();
       return { handled: true };
+    case "/ideas":
+      showIdeas();
+      return { handled: true };
     default:
       return { handled: false };
   }
@@ -144,6 +148,8 @@ export function ChatScreen({
   const { stdout } = useStdout();
   const [chatPickerOpen, setChatPickerOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
+  const [ideasOpen, setIdeasOpen] = useState(false);
+  const [selectedIdeaIndex, setSelectedIdeaIndex] = useState(0);
   const [selectedChatIndex, setSelectedChatIndex] = useState(0);
 
   const width = safeWidth(stdout?.columns, 80) - 4;
@@ -183,8 +189,9 @@ export function ChatScreen({
     onSubmit: async (value) => {
       const result = await handleSlashCommand(
         value, agent, exit,
-        () => { setSelectedChatIndex(0); setChatPickerOpen(true); setHelpOpen(false); },
-        () => { setHelpOpen((c) => !c); setChatPickerOpen(false); },
+        () => { setSelectedChatIndex(0); setChatPickerOpen(true); setHelpOpen(false); setIdeasOpen(false); },
+        () => { setHelpOpen((c) => !c); setChatPickerOpen(false); setIdeasOpen(false); },
+        () => { setSelectedIdeaIndex(0); setIdeasOpen(true); setChatPickerOpen(false); setHelpOpen(false); },
       );
       if (!result.handled) {
         setHelpOpen(false);
@@ -194,6 +201,19 @@ export function ChatScreen({
   });
 
   useInput(async (_input, key) => {
+    if (ideasOpen) {
+      if (key.escape) { setIdeasOpen(false); return; }
+      if (key.upArrow) { setSelectedIdeaIndex((c) => Math.max(0, c - 1)); return; }
+      if (key.downArrow) { setSelectedIdeaIndex((c) => Math.min(IDEA_PROMPTS.length - 1, c + 1)); return; }
+      if (key.return) {
+        const idea = IDEA_PROMPTS[selectedIdeaIndex];
+        if (idea) {
+          setIdeasOpen(false);
+          await agent.sendMessage(idea);
+        }
+      }
+      return;
+    }
     if (chatPickerOpen) {
       if (key.escape) { setChatPickerOpen(false); return; }
       if (key.upArrow) { setSelectedChatIndex((c) => Math.max(0, c - 1)); return; }
@@ -246,6 +266,19 @@ export function ChatScreen({
                 </Text>
               ))}
               {agent.state.chats.length === 0 ? <Text dimColor>No chats yet.</Text> : null}
+            </Box>
+          </Panel>
+        ) : null}
+
+        {ideasOpen ? (
+          <Panel title="Ideas — pick a prompt to send">
+            <Box flexDirection="column">
+              {IDEA_PROMPTS.map((idea, index) => (
+                <Text key={idea} color={selectedIdeaIndex === index ? "cyan" : undefined}>
+                  {selectedIdeaIndex === index ? "›" : " "} {idea}
+                </Text>
+              ))}
+              <Text dimColor>↑↓ to navigate · Enter to send · Esc to close</Text>
             </Box>
           </Panel>
         ) : null}

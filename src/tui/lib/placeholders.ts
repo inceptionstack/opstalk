@@ -1,4 +1,4 @@
-const PLACEHOLDER_PROMPTS = [
+export const IDEA_PROMPTS = [
   "Help me find cost savings in this AWS account",
   "List all S3 buckets sorted by size",
   "Show me any security findings from Security Hub",
@@ -17,6 +17,6 @@ const PLACEHOLDER_PROMPTS = [
 ];
 
 export function getRandomPlaceholder(): string {
-  const index = Math.floor(Math.random() * PLACEHOLDER_PROMPTS.length);
-  return PLACEHOLDER_PROMPTS[index] ?? PLACEHOLDER_PROMPTS[0]!;
+  const index = Math.floor(Math.random() * IDEA_PROMPTS.length);
+  return IDEA_PROMPTS[index] ?? IDEA_PROMPTS[0]!;
 }
