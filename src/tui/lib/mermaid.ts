@@ -223,7 +223,7 @@ function buildMermaidHtml(mermaidCode: string, title?: string): string {
         mermaid.initialize({
           startOnLoad: false,
           theme: "dark",
-          securityLevel: "loose",
+          securityLevel: "strict",
         });
         const renderId = "mermaid-diagram-" + Date.now();
         const { svg } = await mermaid.render(renderId, mermaidSource);
@@ -255,7 +255,7 @@ function createMermaidFilePath(): string {
   return path.join(tmpdir(), `opstalk-mermaid-${Date.now()}-${mermaidFileCounter}.html`);
 }
 
-export function openFileInBrowser(filePath: string): void {
+function openFileInBrowser(filePath: string): void {
   const opener = process.platform === "darwin" ? "open" : "xdg-open";
   const child = spawn(opener, [filePath], {
     detached: true,

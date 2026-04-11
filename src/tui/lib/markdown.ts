@@ -60,7 +60,7 @@ function preprocessMermaidMarkdown(text: string, options?: MarkdownRenderOptions
     const fenceMatch = /```mermaid[^\S\r\n]*\r?\n[\s\S]*?```/.exec(after);
     if (fenceMatch) {
       // Replace with a unique placeholder that marked won't mangle
-      const placeholder = `\n\n_MERMAID_PLACEHOLDER_${i}_\n\n`;
+      const placeholder = `\n\nMERMAIDPLACEHOLDER${i}XEND\n\n`;
       processedText = before + placeholder + after.slice(fenceMatch[0].length);
     }
   }
@@ -91,9 +91,9 @@ export function renderMarkdown(text: string, options?: MarkdownRenderOptions): s
     // Replace placeholders with mermaid info blocks (NOT passed through marked)
     for (let i = 0; i < mermaidSections.length; i++) {
       const section = mermaidSections[i]!;
-      const placeholder = `_MERMAID_PLACEHOLDER_${i}_`;
+      const placeholder = `MERMAIDPLACEHOLDER${i}XEND`;
       const filePath = section.state.filePath;
-      const fileUrl = `file://${filePath}`;
+      const fileUrl = `file://${encodeURI(filePath)}`;
 
       const infoBlock = [
         `📊 Mermaid diagram rendered → ${fileUrl}`,

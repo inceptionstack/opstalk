@@ -69,7 +69,7 @@ function RenderedMessage({ msg, width }: { msg: ChatMessage; width: number }): R
           <>
             <Text>{""}</Text>
             {artifactLines.map((line, i) => {
-              const isMermaidInfo = line.text.includes("📊") || line.text.trimStart().startsWith("mermaid>");
+              const isMermaidInfo = line.text.startsWith("📊 Mermaid diagram") || line.text.trimStart().startsWith("mermaid>");
               return (
                 <Text key={`a-${i}`} color={isMermaidInfo ? "cyan" : "green"} dimColor={line.text.trimStart().startsWith("mermaid>")}>{line.text}</Text>
               );
@@ -90,7 +90,7 @@ function RenderedMessage({ msg, width }: { msg: ChatMessage; width: number }): R
   return (
     <Box flexDirection="column">
       {renderedLines.map((line, index) => {
-        const isMermaidInfo = line.text.includes("📊") || line.text.trimStart().startsWith("mermaid>");
+        const isMermaidInfo = line.text.startsWith("📊 Mermaid diagram") || line.text.trimStart().startsWith("mermaid>");
         const lineColor = isMermaidInfo ? "cyan" : color;
         const isDim = line.text.trimStart().startsWith("mermaid>");
         return (

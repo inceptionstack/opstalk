@@ -9,9 +9,14 @@ export function AssistantMessage({ text }: { text: string }): React.ReactElement
 
   return (
     <>
-      {lines.map((line, index) => (
-        <Text key={`${index}:${line.text}`} color="green" dimColor={line.dim}>{line.text}</Text>
-      ))}
+      {lines.map((line, index) => {
+        const isMermaidInfo = line.text.startsWith("📊 Mermaid diagram");
+        const isMermaidSource = line.text.trimStart().startsWith("mermaid>");
+        const color = (isMermaidInfo || isMermaidSource) ? "cyan" : "green";
+        return (
+          <Text key={`${index}:${line.text.slice(0, 40)}`} color={color} dimColor={isMermaidSource}>{line.text}</Text>
+        );
+      })}
     </>
   );
 }
