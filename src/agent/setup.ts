@@ -16,7 +16,7 @@ function buildSourceArn(accountId: string, region: string): string {
 }
 
 function isEntityAlreadyExistsError(error: unknown): boolean {
-  return error instanceof Error && error.name === "EntityAlreadyExists";
+  return error instanceof Error && error.name === "EntityAlreadyExistsException";
 }
 
 async function getExistingRoleArn(iam: IAMClient, roleName: string): Promise<string> {
