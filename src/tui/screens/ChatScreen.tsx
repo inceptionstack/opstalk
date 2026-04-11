@@ -13,6 +13,9 @@ import { Spinner } from "../components/Spinner.js";
 import { Panel } from "../components/Panel.js";
 import type { DevOpsAgentContextValue } from "../context/DevOpsAgentContext.js";
 import { useConfig } from "../context/ConfigContext.js";
+import { getRandomPlaceholder } from "../lib/placeholders.js";
+
+const INITIAL_PLACEHOLDER = getRandomPlaceholder();
 
 function formatToolLine(msg: ChatMessage): string {
   if (msg.toolName) {
@@ -256,7 +259,7 @@ export function ChatScreen({
         ) : null}
 
         <Text dimColor>{"─".repeat(cols)}</Text>
-        <ChatComposer value={composer.value} cursor={composer.cursor} disabled={agent.state.streaming} />
+        <ChatComposer value={composer.value} cursor={composer.cursor} disabled={agent.state.streaming} placeholder={agent.state.messages.length === 0 ? INITIAL_PLACEHOLDER : undefined} />
         <Text dimColor>
           {config.region} · {config.agentSpaceId ?? "-"} · {agent.state.status}
           {"  enter to send · /help commands"}
