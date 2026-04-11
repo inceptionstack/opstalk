@@ -1,6 +1,6 @@
 {
   "name": "opstalk",
-  "version": "2.8.0",
+  "version": "2.8.1",
   "description": "Interactive terminal chat CLI for AWS DevOps Agent",
   "type": "module",
   "bin": {

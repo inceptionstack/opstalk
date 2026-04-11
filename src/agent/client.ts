@@ -125,7 +125,7 @@ export class DevOpsAgentClient {
   }): Promise<void> {
     await this.sendJson({
       plane: "cp", method: "POST",
-      path: `/v1/agentspaces/${encodeURIComponent(input.agentSpaceId)}/services/associate`,
+      path: `/v1/agentspaces/${encodeURIComponent(input.agentSpaceId)}/associations`,
       body: JSON.stringify({
         serviceId: input.serviceId,
         configuration: input.configuration,
@@ -159,7 +159,7 @@ export class DevOpsAgentClient {
   }): Promise<void> {
     await this.sendJson({
       plane: "cp", method: "POST",
-      path: `/v1/agentspaces/${encodeURIComponent(input.agentSpaceId)}/operatorapp/enable`,
+      path: `/v1/agentspaces/${encodeURIComponent(input.agentSpaceId)}/operator`,
       body: JSON.stringify({
         authFlow: input.authFlow,
         operatorAppRoleArn: input.operatorAppRoleArn,
