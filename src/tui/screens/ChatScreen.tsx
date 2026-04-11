@@ -13,7 +13,19 @@ import { Spinner } from "../components/Spinner.js";
 import { Panel } from "../components/Panel.js";
 import type { DevOpsAgentContextValue } from "../context/DevOpsAgentContext.js";
 import { useConfig } from "../context/ConfigContext.js";
+import { saveConfig } from "../../config/storage.js";
 import { getRandomPlaceholder, IDEA_PROMPTS } from "../lib/placeholders.js";
+
+
+const SLASH_COMMANDS = [
+  { cmd: "/help", desc: "Show commands" },
+  { cmd: "/ideas", desc: "Browse prompt ideas" },
+  { cmd: "/new", desc: "Start a new chat" },
+  { cmd: "/chats", desc: "Resume a recent chat" },
+  { cmd: "/clear", desc: "Clear transcript" },
+  { cmd: "/space", desc: "Switch agent space" },
+  { cmd: "/quit", desc: "Exit opstalk" },
+];
 
 const INITIAL_PLACEHOLDER = getRandomPlaceholder();
 
@@ -111,6 +123,7 @@ async function handleSlashCommand(
   showChats: () => void,
   showHelp: () => void,
   showIdeas: () => void,
+  switchSpace: () => Promise<void>,
 ): Promise<ChatCommandResult> {
   const [command] = value.trim().split(/\s+/);
   switch (command) {
@@ -133,6 +146,9 @@ async function handleSlashCommand(
     case "/ideas":
       showIdeas();
       return { handled: true };
+    case "/space":
+      await switchSpace();
+      return { handled: true };
     default:
       return { handled: false };
   }
@@ -144,13 +160,21 @@ export function ChatScreen({
   agent: DevOpsAgentContextValue;
 }): React.ReactElement {
   const { exit } = useApp();
-  const { config } = useConfig();
+  const { config, setConfig } = useConfig();
   const { stdout } = useStdout();
   const [chatPickerOpen, setChatPickerOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
   const [ideasOpen, setIdeasOpen] = useState(false);
   const [selectedIdeaIndex, setSelectedIdeaIndex] = useState(0);
   const [selectedChatIndex, setSelectedChatIndex] = useState(0);
+  const [slashMenuOpen, setSlashMenuOpen] = useState(false);
+  const [selectedSlashIndex, setSelectedSlashIndex] = useState(0);
+  const [slashFilter, setSlashFilter] = useState("");
+
+  const filteredCommands = useMemo(() => {
+    if (!slashFilter) return SLASH_COMMANDS;
+    return SLASH_COMMANDS.filter((c) => c.cmd.startsWith("/" + slashFilter));
+  }, [slashFilter]);
 
   const width = safeWidth(stdout?.columns, 80) - 4;
 
@@ -186,12 +210,20 @@ export function ChatScreen({
 
   const composer = useComposer({
     disabled: agent.state.streaming,
+    onSlash: () => { setSelectedSlashIndex(0); setSlashFilter(""); setSlashMenuOpen(true); },
+    onSlashChange: (filter) => { setSlashFilter(filter); setSelectedSlashIndex(0); },
     onSubmit: async (value) => {
+      setSlashMenuOpen(false);
       const result = await handleSlashCommand(
         value, agent, exit,
         () => { setSelectedChatIndex(0); setChatPickerOpen(true); setHelpOpen(false); setIdeasOpen(false); },
         () => { setHelpOpen((c) => !c); setChatPickerOpen(false); setIdeasOpen(false); },
         () => { setSelectedIdeaIndex(0); setIdeasOpen(true); setChatPickerOpen(false); setHelpOpen(false); },
+        async () => {
+          const nextConfig = { ...config, agentSpaceId: undefined };
+          setConfig(nextConfig);
+          await saveConfig(nextConfig);
+        },
       );
       if (!result.handled) {
         setHelpOpen(false);
@@ -201,6 +233,28 @@ export function ChatScreen({
   });
 
   useInput(async (_input, key) => {
+    if (slashMenuOpen) {
+      if (key.escape) { setSlashMenuOpen(false); return; }
+      if (key.upArrow) { setSelectedSlashIndex((c) => Math.max(0, c - 1)); return; }
+      if (key.downArrow) { setSelectedSlashIndex((c) => Math.min(filteredCommands.length - 1, c + 1)); return; }
+      if (key.return) {
+        const selected = filteredCommands[selectedSlashIndex];
+        if (selected) {
+          setSlashMenuOpen(false);
+          composer.setValue(selected.cmd);
+          composer.setCursor(selected.cmd.length);
+        }
+      }
+      if (key.tab) {
+        const selected = filteredCommands[selectedSlashIndex];
+        if (selected) {
+          setSlashMenuOpen(false);
+          composer.setValue(selected.cmd);
+          composer.setCursor(selected.cmd.length);
+        }
+      }
+      return;
+    }
     if (ideasOpen) {
       if (key.escape) { setIdeasOpen(false); return; }
       if (key.upArrow) { setSelectedIdeaIndex((c) => Math.max(0, c - 1)); return; }
@@ -266,6 +320,19 @@ export function ChatScreen({
                 </Text>
               ))}
               {agent.state.chats.length === 0 ? <Text dimColor>No chats yet.</Text> : null}
+            </Box>
+          </Panel>
+        ) : null}
+
+        {slashMenuOpen && filteredCommands.length > 0 ? (
+          <Panel title="Commands">
+            <Box flexDirection="column">
+              {filteredCommands.map((item, index) => (
+                <Text key={item.cmd} color={selectedSlashIndex === index ? "cyan" : undefined}>
+                  {selectedSlashIndex === index ? "›" : " "} <Text bold>{item.cmd}</Text> <Text dimColor>{item.desc}</Text>
+                </Text>
+              ))}
+              <Text dimColor>↑↓ navigate · Enter/Tab to fill · Esc close</Text>
             </Box>
           </Panel>
         ) : null}
