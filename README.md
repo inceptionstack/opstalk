@@ -22,14 +22,41 @@ The AWS Console is great, but sometimes you just want to talk to your infrastruc
 ## Features
 
 - Interactive full-screen TUI chat with streaming responses
+- Mermaid diagram rendering — auto-generates HTML with dark theme, clickable file links in terminal
+- Markdown rendering with tables (box-drawing), bold, italic, code blocks, and lists
+- Artifact rendering — create_artifact content (diagrams, ASCII art) displayed inline
 - Slash commands for chat control, help, clearing the transcript, starting a new chat, and resuming previous chats
 - Setup wizard for agent space selection on first launch
 - One-shot `send` command for scripting and automation
 - List previous chat sessions and resume them from the interactive picker
 - List available AWS DevOps Agent spaces
 - AWS IAM SigV4 authentication using the standard AWS credential chain
-- Markdown rendering in the terminal for bold, italic, code, and lists
 - XDG-compliant config storage with restrictive `0600` permissions
+
+## Changelog
+
+| Version | Date | Description |
+| --- | --- | --- |
+| **v2.7.6** | 2026-04-11 | Sanitize mermaid reserved keyword `default` before rendering (renames to `_default` in subgraph declarations) |
+| **v2.7.5** | 2026-04-11 | Scope highlight override to mermaid only — restores syntax highlighting for other languages |
+| **v2.7.4** | 2026-04-11 | Suppress mermaid language warnings during streaming; mermaid file links show in box-drawing card; remove mermaid source dump from terminal |
+| **v2.7.3** | 2026-04-11 | Fix placeholder mangling by marked, XSS fix (strict security level), file URL encoding, tighter mermaid detection, dead code cleanup |
+| **v2.7.2** | 2026-04-11 | Mermaid source properly dimmed; remove auto-open; show clickable `file://` links in cyan |
+| **v2.7.1** | 2026-04-11 | Deduplicate mermaid regex, single-pass preprocessing, remove dead code |
+| **v2.7.0** | 2026-04-11 | 🎉 Mermaid diagrams — auto-generates self-contained HTML with dark theme, Copy Source button, SHA1 cache dedup, zero new deps |
+| **v2.6.0** | 2026-04-11 | Parse concatenated JSON in tool_summary buffers; extract artifact content from nested `artifact.elements`; skip artifact_reference blocks |
+| **v2.5.0** | 2026-04-10 | Replace custom markdown with `marked` + `marked-terminal` — proper tables with box-drawing, headers, code blocks |
+| **v2.4.0** | 2026-04-10 | Render markdown tables with aligned columns and box-drawing characters |
+| **v2.3.2** | 2026-04-10 | Cleaner slant-style ASCII banner |
+| **v2.3.1** | 2026-04-10 | Use proper OpsTalk ASCII banner from gist |
+| **v2.3.0** | 2026-04-10 | Add OpsTalk ASCII banner with version on startup |
+| **v2.2.0** | 2026-04-10 | Scrollable viewport with `<Static>`, artifact/diagram rendering, tool call JSON buffering |
+| **v2.1.0** | 2026-04-10 | Revert to stable fixed-viewport (v0.7.1 base) after scroll rewrite conflicts |
+| **v2.0.0** | 2026-04-10 | Replace Ink chat with Node.js readline — fixes all input/streaming positioning bugs; Ink kept only for setup screen |
+| **v1.2.0** | 2026-04-10 | Format tool_call/tool_result with icons (🔧/✅/❌); skip duplicate `final_response` blocks; fix `contentBlockStop` blanking messages |
+| **v1.1.0** | 2026-04-10 | `--debug` flag with detailed logging; fix viewport layout collapse with fixed-height padding |
+| **v1.0.1** | 2026-04-10 | Fix assistant messages disappearing after streaming; row-based windowed viewport with auto-scroll |
+| **v1.0.0** | 2026-04-10 | 🎉 First stable release — full Ink TUI, SigV4 auth, streaming, slash commands, chat resume, `send` command, CI/CD with git-secrets |
 
 ## Prerequisites
 
@@ -187,6 +214,7 @@ npx tsx src/cli/cli.ts
 - Ink v6
 - React 19
 - Commander
+- marked + marked-terminal (markdown rendering)
 - AWS SDK SigV4 signing via Smithy and AWS credential providers
 - `@smithy/eventstream-serde-node` for streaming response parsing
 
