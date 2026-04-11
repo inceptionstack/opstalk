@@ -255,7 +255,7 @@ function createMermaidFilePath(): string {
   return path.join(tmpdir(), `opstalk-mermaid-${Date.now()}-${mermaidFileCounter}.html`);
 }
 
-function openFileInBrowser(filePath: string): void {
+export function openFileInBrowser(filePath: string): void {
   const opener = process.platform === "darwin" ? "open" : "xdg-open";
   const child = spawn(opener, [filePath], {
     detached: true,
@@ -269,7 +269,6 @@ function startOpen(state: MermaidOpenState): void {
 
   void writeFile(state.filePath, html, "utf8")
     .then(() => {
-      openFileInBrowser(state.filePath);
       state.status = "opened";
     })
     .catch((error: unknown) => {

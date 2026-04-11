@@ -5,7 +5,7 @@ import { Box, Static, Text, useApp, useInput, useStdout } from "ink";
 import type { ChatCommandResult, ChatMessage } from "../lib/types.js";
 import { safeWidth } from "../lib/width.js";
 import { wrapText } from "../lib/wrap.js";
-import { getRenderedMarkdownLines, preprocessMermaid, renderMarkdown } from "../lib/markdown.js";
+import { getRenderedMarkdownLines, renderMarkdown } from "../lib/markdown.js";
 import { HELP_TEXT } from "../hooks/useKeymap.js";
 import { useComposer } from "../hooks/useComposer.js";
 import { ChatComposer } from "../components/ChatComposer.js";
@@ -59,24 +59,21 @@ function RenderedMessage({ msg, width }: { msg: ChatMessage; width: number }): R
     const mermaidTitle = msg.toolName === "create_artifact" ? "Artifact Diagram" : "Tool Artifact Diagram";
     const artifactRendered = msg.artifactContent ? renderMarkdown(msg.artifactContent, { mermaidTitle }) : "";
     const artifactLines = artifactRendered ? getRenderedMarkdownLines(artifactRendered) : [];
-    const artifactMermaidStates = msg.artifactContent ? preprocessMermaid(msg.artifactContent, { mermaidTitle }).states : [];
 
     return (
       <Box flexDirection="column">
         {lines.map((line, i) => (
           <Text key={`t-${i}`} dimColor>{line}</Text>
         ))}
-        {artifactMermaidStates.map((state, index) => (
-          <Text key={`m-${index}`} color="cyan">
-            {`  📊 Diagram opened in browser → ${state.filePath}`}
-          </Text>
-        ))}
         {artifactLines.length > 0 ? (
           <>
             <Text>{""}</Text>
-            {artifactLines.map((line, i) => (
-              <Text key={`a-${i}`} color="green" dimColor={line.dim}>{line.text}</Text>
-            ))}
+            {artifactLines.map((line, i) => {
+              const isMermaidInfo = line.text.includes("📊") || line.text.trimStart().startsWith("mermaid>");
+              return (
+                <Text key={`a-${i}`} color={isMermaidInfo ? "cyan" : "green"} dimColor={line.text.trimStart().startsWith("mermaid>")}>{line.text}</Text>
+              );
+            })}
           </>
         ) : null}
       </Box>
@@ -92,9 +89,14 @@ function RenderedMessage({ msg, width }: { msg: ChatMessage; width: number }): R
 
   return (
     <Box flexDirection="column">
-      {renderedLines.map((line, index) => (
-        <Text key={`${msg.id}-${index}`} color={color} dimColor={line.dim}>{line.text}</Text>
-      ))}
+      {renderedLines.map((line, index) => {
+        const isMermaidInfo = line.text.includes("📊") || line.text.trimStart().startsWith("mermaid>");
+        const lineColor = isMermaidInfo ? "cyan" : color;
+        const isDim = line.text.trimStart().startsWith("mermaid>");
+        return (
+          <Text key={`${msg.id}-${index}`} color={lineColor} dimColor={isDim}>{line.text}</Text>
+        );
+      })}
     </Box>
   );
 }

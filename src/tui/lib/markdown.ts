@@ -9,9 +9,6 @@ marked.use(markedTerminal({
   tab: 2,
 }));
 
-const MERMAID_DIM_PREFIX = "[[OPSTALK_MERMAID_DIM]]";
-const MERMAID_DIM_SUFFIX = "[[/OPSTALK_MERMAID_DIM]]";
-
 export interface MarkdownRenderOptions {
   mermaidTitle?: string;
 }
@@ -25,66 +22,88 @@ function buildMermaidTitle(baseTitle: string | undefined, blockIndex: number, to
   if (!baseTitle) {
     return totalBlocks > 1 ? `Mermaid Diagram ${blockIndex + 1}` : undefined;
   }
-
   return totalBlocks > 1 ? `${baseTitle} (${blockIndex + 1})` : baseTitle;
 }
 
-function renderMermaidSourceLines(mermaidCode: string): string[] {
-  const sourceLines = mermaidCode.split(/\r?\n/);
-  return sourceLines.map((line) => `${MERMAID_DIM_PREFIX}mermaid> ${line}${MERMAID_DIM_SUFFIX}`);
-}
-
-function preprocessMermaidMarkdown(text: string, options?: MarkdownRenderOptions): { text: string; states: MermaidOpenState[] } {
+/**
+ * Preprocess text: extract mermaid blocks, create browser-ready HTML files (without auto-opening),
+ * and replace the fenced blocks with a simple placeholder. The mermaid source lines are NOT
+ * passed through marked — they're re-attached after rendering to avoid mangling.
+ */
+function preprocessMermaidMarkdown(text: string, options?: MarkdownRenderOptions): {
+  markedText: string;
+  mermaidSections: Array<{ state: MermaidOpenState; sourceLines: string[] }>;
+  states: MermaidOpenState[];
+} {
   const mermaidBlocks = extractMermaidBlocks(text);
   if (mermaidBlocks.length === 0) {
-    return { text, states: [] };
+    return { markedText: text, mermaidSections: [], states: [] };
   }
 
+  const mermaidSections: Array<{ state: MermaidOpenState; sourceLines: string[] }> = [];
   const states: MermaidOpenState[] = [];
-  // Walk blocks in reverse so string indices stay valid after replacement
   let processedText = text;
+
+  // Walk in reverse so indices stay valid
   for (let i = mermaidBlocks.length - 1; i >= 0; i--) {
     const block = mermaidBlocks[i]!;
     const title = buildMermaidTitle(options?.mermaidTitle, i, mermaidBlocks.length);
     const state = ensureMermaidBrowserOpen(block.mermaidCode, title);
     states.unshift(state);
+    mermaidSections.unshift({
+      state,
+      sourceLines: block.mermaidCode.split(/\r?\n/),
+    });
 
-    // Find the full fenced block around this index
     const before = processedText.slice(0, block.index);
     const after = processedText.slice(block.index);
     const fenceMatch = /```mermaid[^\S\r\n]*\r?\n[\s\S]*?```/.exec(after);
     if (fenceMatch) {
-      const replacement = [
-        "[📊 Mermaid diagram - opening in browser...]",
-        ...renderMermaidSourceLines(block.mermaidCode),
-      ].join("\n");
-      processedText = before + replacement + after.slice(fenceMatch[0].length);
+      // Replace with a unique placeholder that marked won't mangle
+      const placeholder = `\n\n_MERMAID_PLACEHOLDER_${i}_\n\n`;
+      processedText = before + placeholder + after.slice(fenceMatch[0].length);
     }
   }
 
-  return { text: processedText, states };
+  return { markedText: processedText, mermaidSections, states };
 }
 
 export function preprocessMermaid(text: string, options?: MarkdownRenderOptions): { text: string; states: MermaidOpenState[] } {
-  return preprocessMermaidMarkdown(text, options);
+  const result = preprocessMermaidMarkdown(text, options);
+  return { text: result.markedText, states: result.states };
 }
 
 export function getRenderedMarkdownLines(text: string): RenderedMarkdownLine[] {
   return text.split("\n").map((line) => ({
-    text: line.replace(MERMAID_DIM_PREFIX, "").replace(MERMAID_DIM_SUFFIX, ""),
-    dim: line.includes(MERMAID_DIM_PREFIX),
+    text: line,
+    dim: false,
   }));
 }
 
 export function renderMarkdown(text: string, options?: MarkdownRenderOptions): string {
   try {
-    const preprocessed = preprocessMermaidMarkdown(text, options).text;
-    const result = marked(preprocessed);
-    if (typeof result === "string") {
-      // Trim trailing newlines
-      return result.replace(/\n+$/, "");
+    const { markedText, mermaidSections } = preprocessMermaidMarkdown(text, options);
+    let result = marked(markedText);
+    if (typeof result !== "string") {
+      return text;
     }
-    return text;
+
+    // Replace placeholders with mermaid info blocks (NOT passed through marked)
+    for (let i = 0; i < mermaidSections.length; i++) {
+      const section = mermaidSections[i]!;
+      const placeholder = `_MERMAID_PLACEHOLDER_${i}_`;
+      const filePath = section.state.filePath;
+      const fileUrl = `file://${filePath}`;
+
+      const infoBlock = [
+        `📊 Mermaid diagram rendered → ${fileUrl}`,
+        ...section.sourceLines.map((line) => `  mermaid> ${line}`),
+      ].join("\n");
+
+      result = result.replace(placeholder, infoBlock);
+    }
+
+    return result.replace(/\n+$/, "");
   } catch {
     return text;
   }
