@@ -5,7 +5,7 @@ import { Box, Static, Text, useApp, useInput, useStdout } from "ink";
 import type { ChatCommandResult, ChatMessage } from "../lib/types.js";
 import { safeWidth } from "../lib/width.js";
 import { wrapText } from "../lib/wrap.js";
-import { getMarkdownMermaidStates, getRenderedMarkdownLines, renderMarkdown } from "../lib/markdown.js";
+import { getRenderedMarkdownLines, preprocessMermaid, renderMarkdown } from "../lib/markdown.js";
 import { HELP_TEXT } from "../hooks/useKeymap.js";
 import { useComposer } from "../hooks/useComposer.js";
 import { ChatComposer } from "../components/ChatComposer.js";
@@ -59,7 +59,7 @@ function RenderedMessage({ msg, width }: { msg: ChatMessage; width: number }): R
     const mermaidTitle = msg.toolName === "create_artifact" ? "Artifact Diagram" : "Tool Artifact Diagram";
     const artifactRendered = msg.artifactContent ? renderMarkdown(msg.artifactContent, { mermaidTitle }) : "";
     const artifactLines = artifactRendered ? getRenderedMarkdownLines(artifactRendered) : [];
-    const artifactMermaidStates = msg.artifactContent ? getMarkdownMermaidStates(msg.artifactContent, { mermaidTitle }) : [];
+    const artifactMermaidStates = msg.artifactContent ? preprocessMermaid(msg.artifactContent, { mermaidTitle }).states : [];
 
     return (
       <Box flexDirection="column">

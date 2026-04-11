@@ -299,14 +299,6 @@ export function extractMermaidBlocks(text: string): { mermaidCode: string; index
   return blocks;
 }
 
-export async function openMermaidInBrowser(mermaidCode: string, title?: string): Promise<string> {
-  const filePath = createMermaidFilePath();
-  const html = buildMermaidHtml(normalizeMermaidCode(mermaidCode), title);
-  await writeFile(filePath, html, "utf8");
-  openFileInBrowser(filePath);
-  return filePath;
-}
-
 export function ensureMermaidBrowserOpen(mermaidCode: string, title?: string): MermaidOpenState {
   const normalizedCode = normalizeMermaidCode(mermaidCode);
   const key = buildKey(normalizedCode, title);
@@ -327,7 +319,3 @@ export function ensureMermaidBrowserOpen(mermaidCode: string, title?: string): M
   return state;
 }
 
-export function getMermaidOpenState(mermaidCode: string, title?: string): MermaidOpenState | undefined {
-  const normalizedCode = normalizeMermaidCode(mermaidCode);
-  return openStateCache.get(buildKey(normalizedCode, title));
-}

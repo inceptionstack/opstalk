@@ -11,7 +11,6 @@ marked.use(markedTerminal({
 
 const MERMAID_DIM_PREFIX = "[[OPSTALK_MERMAID_DIM]]";
 const MERMAID_DIM_SUFFIX = "[[/OPSTALK_MERMAID_DIM]]";
-const MERMAID_BLOCK_REGEX = /```mermaid[^\S\r\n]*\r?\n([\s\S]*?)```/g;
 
 export interface MarkdownRenderOptions {
   mermaidTitle?: string;
@@ -41,26 +40,33 @@ function preprocessMermaidMarkdown(text: string, options?: MarkdownRenderOptions
     return { text, states: [] };
   }
 
-  let blockIndex = 0;
   const states: MermaidOpenState[] = [];
-  const processedText = text.replace(MERMAID_BLOCK_REGEX, (_match, rawCode: string) => {
-    const mermaidCode = rawCode.trim();
-    const title = buildMermaidTitle(options?.mermaidTitle, blockIndex, mermaidBlocks.length);
-    const state = ensureMermaidBrowserOpen(mermaidCode, title);
-    states.push(state);
-    blockIndex += 1;
+  // Walk blocks in reverse so string indices stay valid after replacement
+  let processedText = text;
+  for (let i = mermaidBlocks.length - 1; i >= 0; i--) {
+    const block = mermaidBlocks[i]!;
+    const title = buildMermaidTitle(options?.mermaidTitle, i, mermaidBlocks.length);
+    const state = ensureMermaidBrowserOpen(block.mermaidCode, title);
+    states.unshift(state);
 
-    return [
-      "[📊 Mermaid diagram - opening in browser...]",
-      ...renderMermaidSourceLines(mermaidCode),
-    ].join("\n");
-  });
+    // Find the full fenced block around this index
+    const before = processedText.slice(0, block.index);
+    const after = processedText.slice(block.index);
+    const fenceMatch = /```mermaid[^\S\r\n]*\r?\n[\s\S]*?```/.exec(after);
+    if (fenceMatch) {
+      const replacement = [
+        "[📊 Mermaid diagram - opening in browser...]",
+        ...renderMermaidSourceLines(block.mermaidCode),
+      ].join("\n");
+      processedText = before + replacement + after.slice(fenceMatch[0].length);
+    }
+  }
 
   return { text: processedText, states };
 }
 
-export function getMarkdownMermaidStates(text: string, options?: MarkdownRenderOptions): MermaidOpenState[] {
-  return preprocessMermaidMarkdown(text, options).states;
+export function preprocessMermaid(text: string, options?: MarkdownRenderOptions): { text: string; states: MermaidOpenState[] } {
+  return preprocessMermaidMarkdown(text, options);
 }
 
 export function getRenderedMarkdownLines(text: string): RenderedMarkdownLine[] {
