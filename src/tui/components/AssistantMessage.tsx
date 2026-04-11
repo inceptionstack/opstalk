@@ -1,8 +1,17 @@
 import React from "react";
 import { Text } from "ink";
 
-import { renderMarkdown } from "../lib/markdown.js";
+import { getRenderedMarkdownLines, renderMarkdown } from "../lib/markdown.js";
 
 export function AssistantMessage({ text }: { text: string }): React.ReactElement {
-  return <Text color="green">{renderMarkdown(text)}</Text>;
+  const rendered = renderMarkdown(text);
+  const lines = getRenderedMarkdownLines(rendered);
+
+  return (
+    <>
+      {lines.map((line, index) => (
+        <Text key={`${index}:${line.text}`} color="green" dimColor={line.dim}>{line.text}</Text>
+      ))}
+    </>
+  );
 }
