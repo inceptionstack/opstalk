@@ -35,6 +35,12 @@ export interface CreateChatInput {
   userType?: UserType;
 }
 
+export interface CreateAgentSpaceInput {
+  name: string;
+  description?: string;
+  kmsKeyArn?: string;
+}
+
 export interface SendMessageInput {
   agentSpaceId: string;
   executionId: string;

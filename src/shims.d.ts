@@ -50,6 +50,16 @@ declare module "ink" {
   export function useApp(): { exit: () => void };
 }
 
+declare module "ink-text-input" {
+  const TextInput: (props: {
+    value: string;
+    onChange: (value: string) => void;
+    onSubmit?: (value: string) => void;
+    placeholder?: string;
+  }) => React.ReactElement;
+  export default TextInput;
+}
+
 declare module "commander" {
   export class Command {
     name(value: string): this;
@@ -68,6 +78,58 @@ declare module "@aws-sdk/credential-providers" {
     secretAccessKey: string;
     sessionToken?: string;
   }>;
+  export function fromNodeProviderChain(): () => Promise<{
+    accessKeyId: string;
+    secretAccessKey: string;
+    sessionToken?: string;
+  }>;
+}
+
+declare module "@aws-sdk/client-iam" {
+  export class IAMClient {
+    constructor(config?: { region?: string });
+    send(command: unknown): Promise<{
+      Role?: {
+        Arn?: string;
+      };
+    }>;
+  }
+  export class CreateRoleCommand {
+    constructor(input: {
+      RoleName: string;
+      AssumeRolePolicyDocument: string;
+    });
+  }
+  export class GetRoleCommand {
+    constructor(input: {
+      RoleName: string;
+    });
+  }
+  export class AttachRolePolicyCommand {
+    constructor(input: {
+      RoleName: string;
+      PolicyArn: string;
+    });
+  }
+  export class PutRolePolicyCommand {
+    constructor(input: {
+      RoleName: string;
+      PolicyName: string;
+      PolicyDocument: string;
+    });
+  }
+}
+
+declare module "@aws-sdk/client-sts" {
+  export class STSClient {
+    constructor(config?: { region?: string });
+    send(command: unknown): Promise<{
+      Account?: string;
+    }>;
+  }
+  export class GetCallerIdentityCommand {
+    constructor(input: Record<string, never>);
+  }
 }
 
 declare module "marked" {

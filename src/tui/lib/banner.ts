@@ -13,5 +13,5 @@ const BANNER = [
 ].join("\n");
 
 export function getBanner(version: string): string {
-  return `\x1B[36m${BANNER}\x1B[0m  \x1B[2mv${version}\x1B[0m`;
+  return `\n\n\x1B[36m${BANNER}\x1B[0m  \x1B[2mv${version}\x1B[0m`;
 }

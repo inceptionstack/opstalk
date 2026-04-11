@@ -1,6 +1,5 @@
 import crypto from "node:crypto";
 
-// @ts-expect-error CJS/ESM interop
 import { fromNodeProviderChain } from "@aws-sdk/credential-providers";
 import { Hash as NodeHash } from "@smithy/hash-node";
 import { HttpRequest } from "@smithy/protocol-http";
@@ -10,6 +9,7 @@ import { parseEventStream } from "./eventParser.js";
 import type {
   AgentSpace,
   ChatExecution,
+  CreateAgentSpaceInput,
   CreateChatInput,
   DevOpsAgentClientConfig,
   JournalRecord,
@@ -73,6 +73,19 @@ export class DevOpsAgentClient {
     return { agentSpaces: r.data.agentSpaces ?? [], nextToken: r.data.nextToken };
   }
 
+  public async createAgentSpace(input: CreateAgentSpaceInput): Promise<AgentSpace> {
+    const r = await this.sendJson<{ agentSpace: AgentSpace }>({
+      plane: "cp", method: "POST", path: "/v1/agentspaces",
+      body: JSON.stringify({
+        name: input.name,
+        description: input.description,
+        ...(input.kmsKeyArn ? { kmsKeyArn: input.kmsKeyArn } : {}),
+      }),
+      contentType: "application/json",
+    });
+    return r.data.agentSpace;
+  }
+
   public async createChat(input: CreateChatInput): Promise<CreateChatOutput> {
     const r = await this.sendJson<CreateChatOutput>({
       plane: "dp", method: "POST",
@@ -103,6 +116,56 @@ export class DevOpsAgentClient {
       contentType: "application/json",
     });
     return { records: (r.data.records ?? []).map(r2 => ({ ...r2, createdAt: toIsoString(r2.createdAt) })), nextToken: r.data.nextToken };
+  }
+
+  public async associateService(input: {
+    agentSpaceId: string;
+    serviceId: string;
+    configuration: Record<string, unknown>;
+  }): Promise<void> {
+    await this.sendJson({
+      plane: "cp", method: "POST",
+      path: `/v1/agentspaces/${encodeURIComponent(input.agentSpaceId)}/services/associate`,
+      body: JSON.stringify({
+        serviceId: input.serviceId,
+        configuration: input.configuration,
+      }),
+      contentType: "application/json",
+    });
+  }
+
+  public async associateMonitorAccount(input: {
+    agentSpaceId: string;
+    accountId: string;
+    assumableRoleArn: string;
+  }): Promise<void> {
+    await this.associateService({
+      agentSpaceId: input.agentSpaceId,
+      serviceId: "aws",
+      configuration: {
+        aws: {
+          accountId: input.accountId,
+          accountType: "monitor",
+          assumableRoleArn: input.assumableRoleArn,
+        },
+      },
+    });
+  }
+
+  public async enableOperatorApp(input: {
+    agentSpaceId: string;
+    authFlow: string;
+    operatorAppRoleArn: string;
+  }): Promise<void> {
+    await this.sendJson({
+      plane: "cp", method: "POST",
+      path: `/v1/agentspaces/${encodeURIComponent(input.agentSpaceId)}/operatorapp/enable`,
+      body: JSON.stringify({
+        authFlow: input.authFlow,
+        operatorAppRoleArn: input.operatorAppRoleArn,
+      }),
+      contentType: "application/json",
+    });
   }
 
   public async *sendMessage(input: SendMessageInput): AsyncIterable<SendMessageEvent> {
