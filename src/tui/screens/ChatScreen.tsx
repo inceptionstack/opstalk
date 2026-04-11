@@ -237,20 +237,26 @@ export function ChatScreen({
       if (key.escape) { setSlashMenuOpen(false); return; }
       if (key.upArrow) { setSelectedSlashIndex((c) => Math.max(0, c - 1)); return; }
       if (key.downArrow) { setSelectedSlashIndex((c) => Math.min(filteredCommands.length - 1, c + 1)); return; }
-      if (key.return) {
+      if (key.return || key.tab) {
         const selected = filteredCommands[selectedSlashIndex];
         if (selected) {
           setSlashMenuOpen(false);
-          composer.setValue(selected.cmd);
-          composer.setCursor(selected.cmd.length);
-        }
-      }
-      if (key.tab) {
-        const selected = filteredCommands[selectedSlashIndex];
-        if (selected) {
-          setSlashMenuOpen(false);
-          composer.setValue(selected.cmd);
-          composer.setCursor(selected.cmd.length);
+          composer.setValue("");
+          composer.setCursor(0);
+          const result = await handleSlashCommand(
+            selected.cmd, agent, exit,
+            () => { setSelectedChatIndex(0); setChatPickerOpen(true); setHelpOpen(false); setIdeasOpen(false); },
+            () => { setHelpOpen((c) => !c); setChatPickerOpen(false); setIdeasOpen(false); },
+            () => { setSelectedIdeaIndex(0); setIdeasOpen(true); setChatPickerOpen(false); setHelpOpen(false); },
+            async () => {
+              const nextConfig = { ...config, agentSpaceId: undefined };
+              setConfig(nextConfig);
+              await saveConfig(nextConfig);
+            },
+          );
+          if (!result.handled) {
+            await agent.sendMessage(selected.cmd);
+          }
         }
       }
       return;
