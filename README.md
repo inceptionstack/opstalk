@@ -4,7 +4,7 @@ Interactive terminal chat CLI for AWS DevOps Agent.
 
 [![CI](https://github.com/inceptionstack/opstalk/actions/workflows/ci.yml/badge.svg)](https://github.com/inceptionstack/opstalk/actions/workflows/ci.yml)
 
-![OpsTalk Screenshot](docs/screenshot.jpg)
+![OpsTalk Ideas](docs/screenshot-ideas.jpg)
 
 ```bash
 npm install -g opstalk
@@ -137,13 +137,14 @@ opstalk send "summarize current incidents" --region us-west-2
 | Command | Description |
 | --- | --- |
 | `/help` | Show available slash commands |
+| `/ideas` | Browse prompt ideas and pick one to send |
+| `/new` | Start a new chat |
+| `/chats` | Resume a recent chat |
 | `/clear` | Clear the current transcript view |
-| `/new` | Create a new chat |
-| `/chats` | Open the recent chat picker and resume a previous chat |
+| `/space` | Switch agent space |
 | `/quit` | Exit OpsTalk |
-| `/exit` | Exit OpsTalk |
 
-When the chat picker is open, use the arrow keys to move through chats, `Enter` to resume one, and `Esc` to close the picker.
+Type `/` to open an autocomplete menu. Arrow keys to navigate, Enter to execute, Esc to dismiss.
 
 ## Project Structure
 
