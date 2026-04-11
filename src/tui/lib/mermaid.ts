@@ -29,9 +29,29 @@ function normalizeMermaidCode(mermaidCode: string): string {
   return mermaidCode.replace(/^\s+|\s+$/g, "");
 }
 
+/**
+ * Sanitize mermaid code to fix common issues that cause parse failures.
+ * - `default` is a reserved keyword in mermaid; rename subgraph/node IDs that use it.
+ * - Other reserved words: `end`, `graph`, `subgraph`, `style`, `class`, `click`.
+ *   We only fix `default` since it's the most common AI-generated collision.
+ */
+function sanitizeMermaidCode(code: string): string {
+  // Replace `subgraph default[` or `subgraph default ` with `subgraph defaultVpc[` etc.
+  // Only replace bare `default` used as a node/subgraph ID, not inside strings
+  let result = code;
+  // Fix subgraph default → subgraph _default
+  result = result.replace(/\bsubgraph\s+default\b/g, "subgraph _default");
+  // Fix references to the renamed node (standalone `default` at start of connection lines)
+  // e.g. `default -->` or `--> default`
+  result = result.replace(/^(\s*)default(\s*[-<>.~=|])/gm, "$1_default$2");
+  result = result.replace(/([-<>.~=|]\s*)default(\s*)$/gm, "$1_default$2");
+  return result;
+}
+
 function buildMermaidHtml(mermaidCode: string, title?: string): string {
   const safeTitle = title ? escapeHtml(title) : "";
-  const escapedCode = JSON.stringify(mermaidCode);
+  const sanitizedCode = sanitizeMermaidCode(mermaidCode);
+  const escapedCode = JSON.stringify(sanitizedCode);
 
   return `<!doctype html>
 <html lang="en">
