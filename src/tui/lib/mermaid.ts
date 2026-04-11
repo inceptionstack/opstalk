@@ -1,4 +1,3 @@
-import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -253,15 +252,6 @@ function buildMermaidHtml(mermaidCode: string, title?: string): string {
 function createMermaidFilePath(): string {
   mermaidFileCounter += 1;
   return path.join(tmpdir(), `opstalk-mermaid-${Date.now()}-${mermaidFileCounter}.html`);
-}
-
-function openFileInBrowser(filePath: string): void {
-  const opener = process.platform === "darwin" ? "open" : "xdg-open";
-  const child = spawn(opener, [filePath], {
-    detached: true,
-    stdio: "ignore",
-  });
-  child.unref();
 }
 
 function startOpen(state: MermaidOpenState): void {

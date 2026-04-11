@@ -8,9 +8,12 @@ marked.use(markedTerminal({
   reflowText: true,
   tab: 2,
   // Suppress "Could not find the language 'mermaid'" warnings from cli-highlight.
-  // We handle mermaid blocks ourselves; any that leak through (e.g. during streaming)
-  // should render as plain indented text, not trigger console warnings.
-  highlight: (code: string, _lang: string) => code,
+  // During streaming, incomplete mermaid fences may leak through before extraction.
+  // Only bypass highlighting for mermaid; other languages get normal syntax highlighting.
+  highlight: (code: string, lang: string) => {
+    if (lang === "mermaid") return code;
+    return undefined as unknown as string;
+  },
 }));
 
 export interface MarkdownRenderOptions {
