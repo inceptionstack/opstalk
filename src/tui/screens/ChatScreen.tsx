@@ -210,6 +210,7 @@ export function ChatScreen({
 
   const composer = useComposer({
     disabled: agent.state.streaming,
+    suppressInput: slashMenuOpen || ideasOpen || chatPickerOpen,
     onSlash: () => { setSelectedSlashIndex(0); setSlashFilter(""); setSlashMenuOpen(true); },
     onSlashChange: (filter) => { setSlashFilter(filter); setSelectedSlashIndex(0); },
     onSubmit: async (value) => {

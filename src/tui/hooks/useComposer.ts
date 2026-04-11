@@ -3,6 +3,7 @@ import { useMemo, useState } from "react";
 
 interface ComposerOptions {
   disabled?: boolean;
+  suppressInput?: boolean;
   onSubmit: (value: string) => Promise<void> | void;
   onSlash?: () => void;
   onSlashChange?: (filter: string) => void;
@@ -13,7 +14,7 @@ export function useComposer(options: ComposerOptions) {
   const [cursor, setCursor] = useState(0);
 
   useInput(async (input, key) => {
-    if (options.disabled) {
+    if (options.disabled || options.suppressInput) {
       return;
     }
 
