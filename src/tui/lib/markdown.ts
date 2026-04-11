@@ -7,6 +7,10 @@ marked.use(markedTerminal({
   showSectionPrefix: false,
   reflowText: true,
   tab: 2,
+  // Suppress "Could not find the language 'mermaid'" warnings from cli-highlight.
+  // We handle mermaid blocks ourselves; any that leak through (e.g. during streaming)
+  // should render as plain indented text, not trigger console warnings.
+  highlight: (code: string, _lang: string) => code,
 }));
 
 export interface MarkdownRenderOptions {
@@ -26,9 +30,9 @@ function buildMermaidTitle(baseTitle: string | undefined, blockIndex: number, to
 }
 
 /**
- * Preprocess text: extract mermaid blocks, create browser-ready HTML files (without auto-opening),
- * and replace the fenced blocks with a simple placeholder. The mermaid source lines are NOT
- * passed through marked — they're re-attached after rendering to avoid mangling.
+ * Preprocess text: extract mermaid blocks, create browser-ready HTML files,
+ * and replace the fenced blocks with a placeholder. Mermaid source lines are
+ * re-attached AFTER the marked pass to avoid mangling.
  */
 function preprocessMermaidMarkdown(text: string, options?: MarkdownRenderOptions): {
   markedText: string;
@@ -59,18 +63,12 @@ function preprocessMermaidMarkdown(text: string, options?: MarkdownRenderOptions
     const after = processedText.slice(block.index);
     const fenceMatch = /```mermaid[^\S\r\n]*\r?\n[\s\S]*?```/.exec(after);
     if (fenceMatch) {
-      // Replace with a unique placeholder that marked won't mangle
       const placeholder = `\n\nMERMAIDPLACEHOLDER${i}XEND\n\n`;
       processedText = before + placeholder + after.slice(fenceMatch[0].length);
     }
   }
 
   return { markedText: processedText, mermaidSections, states };
-}
-
-export function preprocessMermaid(text: string, options?: MarkdownRenderOptions): { text: string; states: MermaidOpenState[] } {
-  const result = preprocessMermaidMarkdown(text, options);
-  return { text: result.markedText, states: result.states };
 }
 
 export function getRenderedMarkdownLines(text: string): RenderedMarkdownLine[] {
@@ -93,11 +91,14 @@ export function renderMarkdown(text: string, options?: MarkdownRenderOptions): s
       const section = mermaidSections[i]!;
       const placeholder = `MERMAIDPLACEHOLDER${i}XEND`;
       const filePath = section.state.filePath;
+      const fileName = filePath.split("/").pop() ?? filePath;
       const fileUrl = `file://${encodeURI(filePath)}`;
 
       const infoBlock = [
-        `📊 Mermaid diagram rendered → ${fileUrl}`,
-        ...section.sourceLines.map((line) => `  mermaid> ${line}`),
+        `┌─ 📊 Mermaid Diagram ──────────────────────`,
+        `│  ${fileName}`,
+        `│  ${fileUrl}`,
+        `└────────────────────────────────────────────`,
       ].join("\n");
 
       result = result.replace(placeholder, infoBlock);

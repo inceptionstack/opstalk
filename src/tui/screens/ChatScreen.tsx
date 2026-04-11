@@ -69,9 +69,9 @@ function RenderedMessage({ msg, width }: { msg: ChatMessage; width: number }): R
           <>
             <Text>{""}</Text>
             {artifactLines.map((line, i) => {
-              const isMermaidInfo = line.text.startsWith("📊 Mermaid diagram") || line.text.trimStart().startsWith("mermaid>");
+              const isMermaidInfo = line.text.includes("📊 Mermaid") || /^[┌│└]/.test(line.text.trimStart());
               return (
-                <Text key={`a-${i}`} color={isMermaidInfo ? "cyan" : "green"} dimColor={line.text.trimStart().startsWith("mermaid>")}>{line.text}</Text>
+                <Text key={`a-${i}`} color={isMermaidInfo ? "cyan" : "green"} dimColor={false}>{line.text}</Text>
               );
             })}
           </>
@@ -90,9 +90,9 @@ function RenderedMessage({ msg, width }: { msg: ChatMessage; width: number }): R
   return (
     <Box flexDirection="column">
       {renderedLines.map((line, index) => {
-        const isMermaidInfo = line.text.startsWith("📊 Mermaid diagram") || line.text.trimStart().startsWith("mermaid>");
+        const isMermaidInfo = line.text.includes("📊 Mermaid") || /^[┌│└]/.test(line.text.trimStart());
         const lineColor = isMermaidInfo ? "cyan" : color;
-        const isDim = line.text.trimStart().startsWith("mermaid>");
+        const isDim = false;
         return (
           <Text key={`${msg.id}-${index}`} color={lineColor} dimColor={isDim}>{line.text}</Text>
         );
