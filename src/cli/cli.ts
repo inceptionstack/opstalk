@@ -3,6 +3,7 @@ import { Command } from "commander";
 
 import { runChatCommand } from "./commands/chat/command.js";
 import { runChatsCommand } from "./commands/chats/command.js";
+import { runExportCommand } from "./commands/export/command.js";
 import { runSendCommand } from "./commands/send/command.js";
 import { runSpacesCommand } from "./commands/spaces/command.js";
 import { initDebug } from "../debug.js";
@@ -64,6 +65,24 @@ program
   .option("--region <region>", "AWS region")
   .action(async (options) => {
     await runSpacesCommand(collectOverrides(options));
+  });
+
+program
+  .command("export")
+  .argument("[output]", "Output file path (default: stdout)")
+  .option("--chat-id <id>", "Export a specific chat by execution ID")
+  .option("--latest", "Export the latest chat (default)")
+  .option("--region <region>", "AWS region")
+  .option("--agent-space-id <id>", "Agent space ID")
+  .option("--user-id <id>", "User identifier")
+  .description("Export a chat conversation to Markdown")
+  .action(async (output: string | undefined, options) => {
+    const globalOpts = (program as unknown as { opts(): {region?: string; agentSpaceId?: string; userId?: string} }).opts();
+    await runExportCommand(output, {
+      ...collectOverrides({ ...globalOpts, ...options }),
+      chatId: options.chatId,
+      latest: options.latest,
+    });
   });
 
 await program.parseAsync(process.argv);
