@@ -1,7 +1,10 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import fs from "node:fs";
+import path from "node:path";
 import { debug } from "../../debug.js";
 import { Box, Static, Text, useApp, useInput, useStdout } from "ink";
 
+import { formatChatAsMarkdown, type ExportableMessage } from "../../agent/export.js";
 import type { ChatCommandResult, ChatMessage } from "../lib/types.js";
 import { safeWidth } from "../lib/width.js";
 import { wrapText } from "../lib/wrap.js";
@@ -20,6 +23,7 @@ import { getRandomPlaceholder, IDEA_PROMPTS } from "../lib/placeholders.js";
 const SLASH_COMMANDS = [
   { cmd: "/help", desc: "Show commands" },
   { cmd: "/ideas", desc: "Browse prompt ideas" },
+  { cmd: "/export", desc: "Export chat to markdown file" },
   { cmd: "/new", desc: "Start a new chat" },
   { cmd: "/chats", desc: "Resume a recent chat" },
   { cmd: "/clear", desc: "Clear transcript" },
@@ -124,6 +128,7 @@ async function handleSlashCommand(
   showHelp: () => void,
   showIdeas: () => void,
   switchSpace: () => Promise<void>,
+  exportChat: () => void,
 ): Promise<ChatCommandResult> {
   const [command] = value.trim().split(/\s+/);
   switch (command) {
@@ -148,6 +153,9 @@ async function handleSlashCommand(
       return { handled: true };
     case "/space":
       await switchSpace();
+      return { handled: true };
+    case "/export":
+      exportChat();
       return { handled: true };
     default:
       return { handled: false };
@@ -208,6 +216,37 @@ export function ChatScreen({
     return { committed: committedRef.current, active: newActive };
   }, [agent.state.messages]);
 
+  const exportChat = useCallback(() => {
+    const messages = agent.state.messages;
+    if (messages.length === 0) {
+      agent.appendSystemMessage("Nothing to export — no messages yet.");
+      return;
+    }
+
+    const exportable: ExportableMessage[] = messages.map((m) => ({
+      role: m.role,
+      text: m.text,
+      createdAt: m.createdAt,
+      toolName: m.toolName,
+      toolInput: m.toolInput,
+      toolStatus: m.toolStatus,
+      toolResult: m.toolResult,
+      artifactContent: m.artifactContent,
+    }));
+
+    const md = formatChatAsMarkdown(exportable, {
+      executionId: agent.state.executionId ?? "unknown",
+      region: config.region,
+      agentSpaceId: config.agentSpaceId ?? "unknown",
+    });
+
+    const timestamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
+    const filename = `opstalk-export-${timestamp}.md`;
+    const outPath = path.resolve(process.cwd(), filename);
+    fs.writeFileSync(outPath, md, "utf-8");
+    agent.appendSystemMessage(`✅ Exported ${messages.length} messages → ${outPath}`);
+  }, [agent, config.region, config.agentSpaceId]);
+
   const composer = useComposer({
     disabled: agent.state.streaming,
     suppressInput: slashMenuOpen || ideasOpen || chatPickerOpen,
@@ -225,6 +264,7 @@ export function ChatScreen({
           setConfig(nextConfig);
           await saveConfig(nextConfig);
         },
+        exportChat,
       );
       if (!result.handled) {
         setHelpOpen(false);
@@ -254,6 +294,7 @@ export function ChatScreen({
               setConfig(nextConfig);
               await saveConfig(nextConfig);
             },
+            exportChat,
           );
           if (!result.handled) {
             await agent.sendMessage(selected.cmd);
